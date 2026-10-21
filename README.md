@@ -61,10 +61,15 @@ Upstash を直接使う場合は、環境変数 `UPSTASH_REDIS_REST_URL` / `UPST
 
 Upstash のコンソール（Vercel の Storage 画面から開けます）の Data Browser で、次のキーを削除します。
 
+いずれもハッシュで、フィールド名が番号です。1人分だけ消すときは各キーの該当フィールドを削除します。
+
 - `eijukugo:users` … 登録者（番号とニックネーム）
-- `eijukugo:results:<番号>` … その番号の受験結果
-- `eijukugo:wrong:<番号>` … その番号の復習リスト（間違えた問題）
-- `eijukugo:practice:<番号>` … その番号の練習モードの成績（セクションごとの最高点）
+- `eijukugo:v2:results` … 受験結果
+- `eijukugo:v2:wrong` … 復習リスト（間違えた問題）
+- `eijukugo:v2:practice` … 練習モードの成績（セクションごとの最高点）
+
+Redis の接続情報は `KV_REST_API_URL` / `KV_REST_API_TOKEN`（接頭辞付きでも可）、`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`、
+または Upstash の接続文字列（`REDIS_URL` / `KV_URL`）から自動で読み取ります。
 
 例文は `data/examples/01.json`〜`10.json`（熟語番号 → [英文, 和訳]）にあります。
 
