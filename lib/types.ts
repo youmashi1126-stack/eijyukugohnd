@@ -11,7 +11,11 @@ export const SECTION_COUNT = 20;
 export const PRACTICE_QUESTION_COUNT = 15;
 export const PASS_SCORE = 12;
 
-export type User = { number: number; nickname: string; createdAt: string };
+// 復習コーナー：間違えた問題（時間切れ・未回答は除く）からランダム15問。復習で2回正解したらリストから外す
+export const REVIEW_COUNT = 15;
+export const REVIEW_CLEAR_COUNT = 2;
+
+export type User ={ number: number; nickname: string; createdAt: string };
 
 // attemptId は通信の再試行で同じ結果が二重に記録されないようにするための識別子
 export type TestResult = { score: number; at: string; durationSec: number; attemptId?: string };

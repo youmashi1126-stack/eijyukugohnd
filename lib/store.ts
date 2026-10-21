@@ -1,24 +1,41 @@
 import { Redis } from "@upstash/redis";
 import fs from "node:fs";
 import path from "node:path";
-import type { TestResult, User } from "./types";
+import { REVIEW_CLEAR_COUNT, type TestResult, type User } from "./types";
+
+// 復習リスト：問題番号 → 復習コーナーでの連続正解回数（REVIEW_CLEAR_COUNT 回でリストから外す）
+// attempts は同じ解答を二重に反映しないための、最近の送信ID
+export type WrongState = { items: Record<number, number>; attempts: string[] };
 
 export type AllData = {
   users: User[];
   results: Record<number, TestResult[]>;
-  wrong: Record<number, number[]>;
+  wrong: Record<number, WrongState>;
   practice: Record<number, Record<number, number>>;
 };
 
 // 1回の解答送信で保存する内容
 export type SaveRequest = {
-  wrongAdd: number[]; // 間違えた問題（復習リストに追加）
-  wrongRemove: number[]; // 正解した問題（復習リストから外す）
+  attemptId?: string;
+  wrongAdd: number[]; // 間違えた問題（復習リストに追加、復習中なら正解回数を0に戻す）
+  reviewCorrect: number[]; // 復習コーナーで正解した問題（正解回数を1つ増やす）
   result?: TestResult; // 本番テストの記録
   practice?: { section: number; score: number }; // 練習モードの得点
 };
 
-export type RecordOutcome = { remaining: number; best?: number; newBest: boolean };
+// reviewProgress：復習コーナーで答えた問題ごとの正解回数（リストから外れたものは REVIEW_CLEAR_COUNT）
+export type RecordOutcome = { remaining: number; best?: number; newBest: boolean; reviewProgress: Record<number, number> };
+
+const KEEP_ATTEMPTS = 20;
+
+// 旧形式（問題番号の配列）も読めるようにする
+export function toWrongState(v: unknown): WrongState {
+  if (Array.isArray(v)) return { items: Object.fromEntries(v.map((id) => [Number(id), 0])), attempts: [] };
+  const o = (v ?? {}) as Partial<WrongState>;
+  const items: Record<number, number> = {};
+  for (const [k, c] of Object.entries(o.items ?? {})) items[Number(k)] = Number(c);
+  return { items, attempts: Array.isArray(o.attempts) ? o.attempts : [] };
+}
 
 interface Store {
   readonly persistent: boolean;
@@ -34,13 +51,26 @@ interface Store {
 // 記録の反映（Redis・ローカル共通）。同じ解答の二重送信（通信の再試行など）は attemptId で弾く
 function apply(
   history: TestResult[],
-  wrong: number[],
+  wrong: WrongState,
   practice: Record<number, number>,
   rec: SaveRequest,
-): { history: TestResult[]; wrong: number[]; practice: Record<number, number>; outcome: RecordOutcome } {
-  const set = new Set(wrong);
-  for (const id of rec.wrongRemove) set.delete(id);
-  for (const id of rec.wrongAdd) set.add(id);
+): { history: TestResult[]; wrong: WrongState; practice: Record<number, number>; outcome: RecordOutcome } {
+  const items = { ...wrong.items };
+  const reviewProgress: Record<number, number> = {};
+  const duplicate = !!rec.attemptId && wrong.attempts.includes(rec.attemptId);
+  if (!duplicate) {
+    for (const id of rec.wrongAdd) items[id] = 0;
+    for (const id of rec.reviewCorrect) {
+      if (items[id] === undefined) continue;
+      const c = items[id] + 1;
+      if (c >= REVIEW_CLEAR_COUNT) delete items[id];
+      else items[id] = c;
+    }
+  }
+  for (const id of rec.reviewCorrect) reviewProgress[id] = items[id] ?? REVIEW_CLEAR_COUNT;
+  for (const id of rec.wrongAdd) reviewProgress[id] = items[id] ?? 0;
+  const attempts = rec.attemptId && !duplicate ? [...wrong.attempts, rec.attemptId].slice(-KEEP_ATTEMPTS) : wrong.attempts;
+  const nextWrong = { items, attempts };
 
   let nextHistory = history;
   if (rec.result && !(rec.result.attemptId && history.some((h) => h.attemptId === rec.result!.attemptId))) {
@@ -59,7 +89,12 @@ function apply(
     }
     best = nextPractice[section];
   }
-  return { history: nextHistory, wrong: [...set], practice: nextPractice, outcome: { remaining: set.size, best, newBest } };
+  return {
+    history: nextHistory,
+    wrong: nextWrong,
+    practice: nextPractice,
+    outcome: { remaining: Object.keys(items).length, best, newBest, reviewProgress },
+  };
 }
 
 // ---------- Redis（Vercel 本番） ----------
@@ -159,14 +194,17 @@ class RedisStore implements Store {
     return {
       users: Object.values(users ?? {}).map((v) => parse<User>(v, {} as User)),
       results: byNumber<TestResult[]>(results, []),
-      wrong: byNumber<number[]>(wrong, []),
+      wrong: Object.fromEntries(
+        Object.entries(byNumber<unknown>(wrong, null)).map(([k, v]) => [Number(k), toWrongState(v)]),
+      ) as Record<number, WrongState>,
       practice: byNumber<Record<number, number>>(practice, {}),
     };
   }
 
   async getWrong(number: number) {
     await this.migrate();
-    return parse<number[]>(await this.redis.hget(WRONG_KEY, String(number)), []);
+    const state = toWrongState(parse<unknown>(await this.redis.hget(WRONG_KEY, String(number)), null));
+    return Object.keys(state.items).map(Number);
   }
 
   async record(number: number, rec: SaveRequest) {
@@ -179,7 +217,7 @@ class RedisStore implements Store {
     const [h, w, pr] = await p.exec<unknown[]>();
     const next = apply(
       parse<TestResult[]>(h, []),
-      parse<number[]>(w, []),
+      toWrongState(parse<unknown>(w, null)),
       toNumberRecord(parse<Record<string, unknown>>(pr, {})),
       rec,
     );
@@ -197,7 +235,7 @@ class RedisStore implements Store {
 type Db = {
   users: Record<string, User>;
   results: Record<string, TestResult[]>;
-  wrong?: Record<string, number[]>;
+  wrong?: Record<string, WrongState | number[]>;
   practice?: Record<string, Record<string, number>>;
 };
 
@@ -241,25 +279,25 @@ class LocalStore implements Store {
 
   async getAll() {
     const results: Record<number, TestResult[]> = {};
-    const wrong: Record<number, number[]> = {};
+    const wrong: Record<number, WrongState> = {};
     const practice: Record<number, Record<number, number>> = {};
     for (const k of Object.keys(this.db.users)) {
       const n = Number(k);
       results[n] = this.db.results[k] ?? [];
-      wrong[n] = this.db.wrong?.[k] ?? [];
+      wrong[n] = toWrongState(this.db.wrong?.[k]);
       practice[n] = toNumberRecord(this.db.practice?.[k]);
     }
     return { users: Object.values(this.db.users), results, wrong, practice };
   }
 
   async getWrong(number: number) {
-    return this.db.wrong?.[number] ?? [];
+    return Object.keys(toWrongState(this.db.wrong?.[number]).items).map(Number);
   }
 
   async record(number: number, rec: SaveRequest) {
     const next = apply(
       this.db.results[number] ?? [],
-      this.db.wrong?.[number] ?? [],
+      toWrongState(this.db.wrong?.[number]),
       toNumberRecord(this.db.practice?.[number]),
       rec,
     );

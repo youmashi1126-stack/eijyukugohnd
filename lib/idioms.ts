@@ -7,7 +7,6 @@ export const idioms = raw as Idiom[];
 const byId = new Map(idioms.map((i) => [i.id, i]));
 
 export const QUESTION_COUNT = 100;
-export const REVIEW_MAX = 50;
 
 export function getIdiom(id: number): Idiom | undefined {
   return byId.get(id);

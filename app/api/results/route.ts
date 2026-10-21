@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { getIdiom, isCorrect, QUESTION_COUNT, REVIEW_MAX } from "@/lib/idioms";
+import { getIdiom, isCorrect, QUESTION_COUNT } from "@/lib/idioms";
 import { getStore } from "@/lib/store";
 import {
   isValidNumber,
   isValidSection,
   PRACTICE_QUESTION_COUNT,
+  REVIEW_COUNT,
   sectionRange,
   type Answer,
   type DetailItem,
@@ -35,7 +36,7 @@ export async function POST(req: Request) {
 
   const ids = new Set(answers.map((a) => a?.id));
   let countOk: boolean;
-  if (mode === "review") countOk = answers.length >= 1 && answers.length <= REVIEW_MAX;
+  if (mode === "review") countOk = answers.length >= 1 && answers.length <= REVIEW_COUNT;
   else if (mode === "practice") {
     const [from, to] = sectionRange(section);
     countOk = answers.length === PRACTICE_QUESTION_COUNT && answers.every((a) => a?.id >= from && a?.id <= to);
@@ -54,12 +55,14 @@ export async function POST(req: Request) {
   });
   const score = details.filter((d) => d.correct).length;
 
-  // 間違えた問題は復習リストへ、正解した問題はリストから外す。ランキングに入るのは本番テストのみ
-  const { remaining, best, newBest } = await store.record(number, {
-    wrongAdd: details.filter((d) => !d.correct).map((d) => d.id),
-    wrongRemove: details.filter((d) => d.correct).map((d) => d.id),
+  // 答えて間違えた問題は復習リストへ（時間切れ・未回答は入れない）。
+  // 復習コーナーで正解した問題は正解回数を増やし、2回でリストから外す。ランキングに入るのは本番テストのみ
+  const { remaining, best, newBest, reviewProgress } = await store.record(number, {
+    attemptId,
+    wrongAdd: details.filter((d) => !d.correct && d.chosen !== null).map((d) => d.id),
+    reviewCorrect: mode === "review" ? details.filter((d) => d.correct).map((d) => d.id) : [],
     result: mode === "test" ? { score, at: new Date().toISOString(), durationSec, attemptId } : undefined,
     practice: mode === "practice" ? { section, score } : undefined,
   });
-  return NextResponse.json({ score, total: answers.length, details, remaining, newBest, best });
+  return NextResponse.json({ score, total: answers.length, details, remaining, newBest, best, reviewProgress });
 }

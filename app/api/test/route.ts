@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { generateTest, idsInRange, REVIEW_MAX } from "@/lib/idioms";
+import { generateTest, idsInRange } from "@/lib/idioms";
 import { getStore } from "@/lib/store";
-import { isValidNumber, isValidSection, PRACTICE_QUESTION_COUNT, sectionRange } from "@/lib/types";
+import { isValidNumber, isValidSection, PRACTICE_QUESTION_COUNT, REVIEW_COUNT, sectionRange } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -28,5 +28,5 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "番号が正しくありません" }, { status: 400 });
   }
   const wrong = await getStore().getWrong(number);
-  return NextResponse.json({ questions: generateTest(wrong, REVIEW_MAX), remaining: wrong.length });
+  return NextResponse.json({ questions: generateTest(wrong, REVIEW_COUNT), remaining: wrong.length });
 }

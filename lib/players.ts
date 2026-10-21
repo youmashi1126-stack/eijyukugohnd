@@ -17,7 +17,7 @@ export async function getPlayers(): Promise<Player[]> {
       best: count > 0 ? Math.max(...history.map((r) => r.score)) : null,
       lastAt: count > 0 ? history[count - 1].at : null,
       rank: null,
-      wrongCount: wrong[u.number]?.length ?? 0,
+      wrongCount: Object.keys(wrong[u.number]?.items ?? {}).length,
       practice: practice[u.number] ?? {},
       history,
     };

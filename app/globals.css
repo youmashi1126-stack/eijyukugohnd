@@ -1515,3 +1515,25 @@ table.ranking {
   font-weight: 700;
   font-size: 14px;
 }
+
+.review-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  background: #e0f2fe;
+  color: #0369a1;
+  vertical-align: middle;
+}
+
+.review-badge.clear {
+  background: linear-gradient(90deg, #fde68a, #fbbf24);
+  color: #92400e;
+}
+
+.review-badge.reset {
+  background: #fee2e2;
+  color: #b91c1c;
+}

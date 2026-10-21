@@ -10,6 +10,8 @@ import {
   markFor,
   PASS_SCORE,
   PRACTICE_SEC_PER_QUESTION,
+  REVIEW_CLEAR_COUNT,
+  REVIEW_COUNT,
   sectionRange,
   TEST_TIME_LIMIT_SEC,
   type DetailItem,
@@ -34,6 +36,7 @@ type Result = {
   timeUp: boolean;
   newBest: boolean;
   best?: number;
+  reviewProgress?: Record<number, number>;
 };
 
 export default function TestPage() {
@@ -319,7 +322,9 @@ function TestRunner() {
       <div className="card empty-state">
         <div className="big">🎉</div>
         <h1>復習する問題はありません！</h1>
-        <p className="muted">テストや練習で間違えた問題がここにたまります。正解するとリストから消えるよ。</p>
+        <p className="muted">
+          テストや練習で間違えた問題（時間切れは除く）がここにたまります。復習で{REVIEW_CLEAR_COUNT}回正解するとリストから消えるよ。
+        </p>
         <div className="btn-row" style={{ justifyContent: "center" }}>
           <Link href="/test" className="btn btn-primary btn-large">
             🚀 テストに挑戦
@@ -455,7 +460,8 @@ function TestRunner() {
         {mode === "test" && "選ぶとすぐ次の問題へ。答え合わせは最後にまとめて！（1・2・3キーでも回答できます）"}
         {mode === "practice" &&
           `1問${PRACTICE_SEC_PER_QUESTION}秒以内に答えよう！答え合わせを確認したら「次へ」（1・2・3キーで回答、Enterで次へ）`}
-        {mode === "review" && "キーボードなら 1・2・3 で回答、Enter で次へ"}
+        {mode === "review" &&
+          `間違えた問題からランダム${REVIEW_COUNT}問。${REVIEW_CLEAR_COUNT}回正解でリストから消えます（1・2・3キーで回答、Enterで次へ）`}
       </p>
     </>
   );
@@ -558,7 +564,12 @@ function ResultView({
           {mode === "practice" && result.best !== undefined && <span>🏅 ベスト {result.best}点</span>}
           <span>🔁 復習リスト 残り {result.remaining}問</span>
         </div>
-        {mode === "review" && <p className="muted">復習コーナーの結果はランキングには入りません</p>}
+        {mode === "review" && (
+          <p className="muted">
+            今回 ✨{Object.values(result.reviewProgress ?? {}).filter((c) => c >= REVIEW_CLEAR_COUNT).length}
+            問が復習クリア！（復習コーナーの結果はランキングには入りません）
+          </p>
+        )}
         <div className="btn-row" style={{ justifyContent: "center" }}>
           <button className="btn btn-primary btn-large" onClick={onRetry}>
             {mode === "review" ? "🔁 もう一度復習" : "🚀 もう一度挑戦"}
@@ -609,6 +620,7 @@ function ResultView({
                 <span className={r.correct ? "res-ok" : "res-ng"}>{r.correct ? "◯" : "✕"}</span>{" "}
                 {filter === "all" && <span className="muted">Q{i + 1}　</span>}
                 {r.phrase}
+                {mode === "review" && <ReviewBadge count={result.reviewProgress?.[r.id]} correct={r.correct} />}
               </div>
               {!r.correct && <div className="wrong">あなたの答え：{r.chosen ?? "（未回答・時間切れ）"}</div>}
               <div className="right">正しい意味：{r.meaning}</div>
@@ -618,4 +630,12 @@ function ResultView({
       </div>
     </>
   );
+}
+
+// 復習コーナーの問題ごとの進み具合（2回正解でリストから外れる）
+function ReviewBadge({ count, correct }: { count: number | undefined; correct: boolean }) {
+  if (count === undefined) return null;
+  if (count >= REVIEW_CLEAR_COUNT) return <span className="review-badge clear">✨ 復習クリア！</span>;
+  if (correct) return <span className="review-badge">あと{REVIEW_CLEAR_COUNT - count}回正解でクリア</span>;
+  return <span className="review-badge reset">正解回数リセット</span>;
 }
