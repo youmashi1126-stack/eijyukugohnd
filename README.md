@@ -1,0 +1,62 @@
+# 朝学習 英熟語テストアプリ
+
+ターゲット英熟語1000（`00_英熟語テスト出題計画_2学期.xlsx` の「熟語別出題」シート）から
+ランダムに100問を出題し、英熟語の意味を3択（ア・イ・ウ）から選ぶテストアプリです。
+
+## 機能
+
+- **番号登録**：最初に1〜32番から自分の番号を選び、ニックネームを登録
+- **自動識別**：番号は端末（ブラウザ）に記憶され、2回目以降は自動でログイン状態になる
+  - 別の端末では、登録済みの番号を選んで「〇〇として続ける」を押せば同じ番号で受験できる
+- **テスト**：1000問からランダム100問。複数の意味がある熟語（①②…）は朝学習と同じく1つの語義を正解として出題
+  - キーボードの 1/2/3 キーでも回答可、← → で移動
+  - 採点はサーバー側で行い、間違えた問題と正しい意味を表示
+- **ランキング**：全参加者の受験回数・平均点・最高点・最終受験日時を表示（平均点順／回数順／最高点順／番号順）
+  - 行をタップするとその人の全受験結果を表示
+
+## 構成
+
+| パス | 内容 |
+| --- | --- |
+| `app/page.tsx` | ホーム（番号登録・自分の成績） |
+| `app/test/page.tsx` | テスト画面・結果画面 |
+| `app/ranking/page.tsx` | ランキング（全参加者データ） |
+| `app/api/*` | 出題・採点・登録・集計 API |
+| `data/idioms.json` | 英熟語1000問（Excel から変換） |
+| `lib/store.ts` | データ保存（Vercel 上は Upstash Redis、ローカルでは `.data/db.json`） |
+
+## ローカルで動かす
+
+Node.js 18.18 以上が必要です。
+
+```bash
+npm install
+npm run dev
+```
+
+http://localhost:3000 を開きます。Redis の設定が無い場合は `.data/db.json` に保存されます。
+
+## Vercel へのデプロイ
+
+Vercel はファイルを保存できないため、成績データの保存に **Upstash Redis**（無料枠あり）を使います。
+
+1. このフォルダ（`eijukugo-test-app`）を GitHub のリポジトリにアップロードする
+2. [Vercel](https://vercel.com/new) で「Add New → Project」からそのリポジトリを Import し、そのまま Deploy
+   （Framework は Next.js が自動選択されます）
+3. Vercel のプロジェクト画面で **Storage → Create Database → Upstash（Redis）** を選んで作成し、プロジェクトに接続する
+   - 接続すると環境変数 `KV_REST_API_URL` と `KV_REST_API_TOKEN` が自動で設定されます
+4. **Deployments → 最新のデプロイ → Redeploy** で再デプロイすると、データが保存されるようになります
+
+Upstash を直接使う場合は、環境変数 `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` を設定しても動きます。
+
+## データのリセット
+
+Upstash のコンソール（Vercel の Storage 画面から開けます）の Data Browser で、次のキーを削除します。
+
+- `eijukugo:users` … 登録者（番号とニックネーム）
+- `eijukugo:results:<番号>` … その番号の受験結果
+
+## 問題データの更新
+
+`data/idioms.json` は `[{ "id": 1, "phrase": "a piece of ～", "meaning": "１つの～" }, ...]` の形式です。
+意味に `①…②…` が含まれる場合、出題時に1つの語義がランダムに選ばれます。
