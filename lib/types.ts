@@ -5,10 +5,11 @@ export const MAX_NUMBER = 35;
 export const TEST_TIME_LIMIT_SEC = 150;
 export const PRACTICE_SEC_PER_QUESTION = 5;
 
-// 練習モード：番号順に50問ずつ20セクション。8割以上で○、満点で◎
+// 練習モード：番号順に50問ずつ20セクション。テストはその中からランダム15問で、8割（12問）以上で○、満点で◎
 export const SECTION_SIZE = 50;
 export const SECTION_COUNT = 20;
-export const PASS_SCORE = 40;
+export const PRACTICE_QUESTION_COUNT = 15;
+export const PASS_SCORE = 12;
 
 export type User = { number: number; nickname: string; createdAt: string };
 
@@ -51,7 +52,7 @@ export function sectionRange(section: number): [number, number] {
 
 export function markFor(best: number | undefined): "◎" | "○" | "" {
   if (best === undefined) return "";
-  if (best >= SECTION_SIZE) return "◎";
+  if (best >= PRACTICE_QUESTION_COUNT) return "◎";
   if (best >= PASS_SCORE) return "○";
   return "";
 }
@@ -59,7 +60,7 @@ export function markFor(best: number | undefined): "◎" | "○" | "" {
 export function practiceSummary(practice: Record<number, number>) {
   const bests = Object.values(practice);
   return {
-    perfect: bests.filter((b) => b >= SECTION_SIZE).length,
+    perfect: bests.filter((b) => b >= PRACTICE_QUESTION_COUNT).length,
     cleared: bests.filter((b) => b >= PASS_SCORE).length,
     tried: bests.length,
     total: bests.reduce((s, b) => s + b, 0),

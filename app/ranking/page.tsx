@@ -9,7 +9,7 @@ import {
   PASS_SCORE,
   practiceSummary,
   SECTION_COUNT,
-  SECTION_SIZE,
+  PRACTICE_QUESTION_COUNT,
   type Player,
 } from "@/lib/types";
 
@@ -94,7 +94,7 @@ function PracticeRanking({ players, myNumber }: { players: Player[]; myNumber: n
                     const mark = markFor(best);
                     const state = mark === "◎" ? "perfect" : mark === "○" ? "pass" : best !== undefined ? "tried" : "";
                     return (
-                      <span key={s} className={`cell ${state}`} title={`S${s}: ${best !== undefined ? `${best}/${SECTION_SIZE}` : "未挑戦"}`}>
+                      <span key={s} className={`cell ${state}`} title={`S${s}: ${best !== undefined ? `${best}/${PRACTICE_QUESTION_COUNT}` : "未挑戦"}`}>
                         {mark || s}
                       </span>
                     );

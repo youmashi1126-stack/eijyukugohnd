@@ -9,6 +9,7 @@ import {
   isValidSection,
   markFor,
   PASS_SCORE,
+  PRACTICE_QUESTION_COUNT,
   PRACTICE_SEC_PER_QUESTION,
   SECTION_COUNT,
   SECTION_SIZE,
@@ -78,11 +79,11 @@ export default function SectionPage() {
         </h1>
         <p className="muted" style={{ margin: 0 }}>
           No.{from}〜{to}・{SECTION_SIZE}問。単語をタップすると発音と例文が出ます。
-          {best !== undefined ? ` 自己ベスト ${best}/${SECTION_SIZE}点` : " まだ挑戦していません"}
+          {best !== undefined ? ` 自己ベスト ${best}/${PRACTICE_QUESTION_COUNT}点` : " まだ挑戦していません"}
         </p>
         <div className="btn-row">
           <Link href={`/test?mode=practice&section=${section}`} className="btn btn-large" style={{ color: "var(--primary)" }}>
-            ⏱ テストに挑戦（1問{PRACTICE_SEC_PER_QUESTION}秒）
+            ⏱ テストに挑戦（ランダム{PRACTICE_QUESTION_COUNT}問・1問{PRACTICE_SEC_PER_QUESTION}秒）
           </Link>
         </div>
         <p className="muted" style={{ margin: "8px 0 0", fontSize: 13 }}>

@@ -4,8 +4,8 @@ import { getStore } from "@/lib/store";
 import {
   isValidNumber,
   isValidSection,
+  PRACTICE_QUESTION_COUNT,
   sectionRange,
-  SECTION_SIZE,
   type Answer,
   type DetailItem,
   type Mode,
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
   if (mode === "review") countOk = answers.length >= 1 && answers.length <= REVIEW_MAX;
   else if (mode === "practice") {
     const [from, to] = sectionRange(section);
-    countOk = answers.length === SECTION_SIZE && answers.every((a) => a?.id >= from && a?.id <= to);
+    countOk = answers.length === PRACTICE_QUESTION_COUNT && answers.every((a) => a?.id >= from && a?.id <= to);
   } else countOk = answers.length === QUESTION_COUNT;
   const valid =
     countOk &&

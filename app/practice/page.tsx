@@ -8,6 +8,7 @@ import {
   comparePractice,
   markFor,
   PASS_SCORE,
+  PRACTICE_QUESTION_COUNT,
   PRACTICE_SEC_PER_QUESTION,
   practiceSummary,
   SECTION_COUNT,
@@ -61,8 +62,8 @@ export default function PracticeHome() {
         <span className="hero-number">No.{me.number}</span>
         <h1 style={{ marginTop: 8 }}>📚 練習モード</h1>
         <p className="muted" style={{ margin: 0 }}>
-          英熟語1000を番号順に{SECTION_SIZE}問ずつ{SECTION_COUNT}セクション。単語一覧で覚えてから、1問{PRACTICE_SEC_PER_QUESTION}
-          秒のテストで{PASS_SCORE}点以上なら ○、満点なら ◎！
+          英熟語1000を番号順に{SECTION_SIZE}問ずつ{SECTION_COUNT}セクション。単語一覧で覚えてから、ランダム
+          {PRACTICE_QUESTION_COUNT}問・1問{PRACTICE_SEC_PER_QUESTION}秒のテストで{PASS_SCORE}点以上なら ○、満点なら ◎！
         </p>
         <div className="stats">
           <div className="stat">
@@ -131,7 +132,7 @@ export default function PracticeHome() {
                 <div className="sec-range">
                   No.{from}〜{to}
                 </div>
-                <div className="sec-best">{best !== undefined ? `ベスト ${best}/${SECTION_SIZE}` : "未挑戦"}</div>
+                <div className="sec-best">{best !== undefined ? `ベスト ${best}/${PRACTICE_QUESTION_COUNT}` : "未挑戦"}</div>
               </Link>
             );
           })}

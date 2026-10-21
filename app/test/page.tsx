@@ -8,6 +8,7 @@ import { playSfx, speak } from "@/lib/sound";
 import { cheerFor, titleFor } from "@/lib/titles";
 import {
   markFor,
+  PASS_SCORE,
   PRACTICE_SEC_PER_QUESTION,
   sectionRange,
   TEST_TIME_LIMIT_SEC,
@@ -18,7 +19,7 @@ import {
 
 const LABELS = ["ア", "イ", "ウ"];
 const FLASH_MS = 150; // 選んだ選択肢を一瞬光らせてから次へ
-const TIMEOUT_MS = 450; // 練習モードの時間切れ表示
+const TIMED_OUT = -1; // picked に入れる「時間切れ」の印
 const NEXT_DELAY_OK = 700; // 復習コーナーの答え合わせ表示
 const NEXT_DELAY_NG = 1800;
 
@@ -48,14 +49,14 @@ function TestRunner() {
   const modeParam = params.get("mode");
   const mode: Mode = modeParam === "review" || modeParam === "practice" ? modeParam : "test";
   const section = Number(params.get("section")) || 0;
-  const instant = mode === "review"; // 復習コーナーだけ1問ごとに答え合わせ
+  // 復習コーナーと練習モードは1問ごとに答え合わせ（練習モードは「次へ」を押すまで確認できる）
+  const instant = mode === "review" || mode === "practice";
 
   const [myNumber, setMyNumber] = useState<number | null>(null);
   const [questions, setQuestions] = useState<Question[] | null>(null);
   const [idx, setIdx] = useState(0);
   const [picks, setPicks] = useState<(number | null)[]>([]);
   const [flash, setFlash] = useState<number | null>(null);
-  const [timedOut, setTimedOut] = useState(false);
   const [picked, setPicked] = useState<number | null>(null);
   const [correctCount, setCorrectCount] = useState(0);
   const [combo, setCombo] = useState(0);
@@ -66,6 +67,7 @@ function TestRunner() {
 
   const startedAt = useRef(0);
   const qDeadline = useRef(0);
+  const frozenLeft = useRef(0);
   const idxRef = useRef(0);
   const picksRef = useRef<(number | null)[]>([]);
   const locked = useRef(false);
@@ -100,7 +102,6 @@ function TestRunner() {
         setQuestions(data.questions);
         setPicked(null);
         setFlash(null);
-        setTimedOut(false);
         setCorrectCount(0);
         setCombo(0);
         startedAt.current = Date.now();
@@ -215,6 +216,7 @@ function TestRunner() {
       }
 
       const ok = i === q.answer;
+      frozenLeft.current = Math.max(0, qDeadline.current - Date.now());
       setPicked(i);
       if (ok) {
         const nextCombo = combo + 1;
@@ -226,9 +228,9 @@ function TestRunner() {
         setCombo(0);
         playSfx("wrong");
       }
-      timer.current = setTimeout(nextReview, ok ? NEXT_DELAY_OK : NEXT_DELAY_NG);
+      if (mode === "review") timer.current = setTimeout(nextReview, ok ? NEXT_DELAY_OK : NEXT_DELAY_NG);
     },
-    [questions, instant, combo, afterAnswer, nextReview],
+    [questions, instant, mode, combo, afterAnswer, nextReview],
   );
 
   // タイマー
@@ -244,17 +246,15 @@ function TestRunner() {
     if (mode === "test" && now >= startedAt.current + TEST_TIME_LIMIT_SEC * 1000) {
       submit(true);
     }
+    // 練習モードの時間切れ：未回答のまま正解を表示し、「次へ」を待つ
     if (mode === "practice" && !locked.current && now >= qDeadline.current) {
       locked.current = true;
-      setTimedOut(true);
+      frozenLeft.current = 0;
+      setPicked(TIMED_OUT);
+      setCombo(0);
       playSfx("wrong");
-      timer.current = setTimeout(() => {
-        setTimedOut(false);
-        locked.current = false;
-        afterAnswer();
-      }, TIMEOUT_MS);
     }
-  }, [now, questions, result, mode, submit, afterAnswer]);
+  }, [now, questions, result, mode, submit]);
 
   // 問題が変わったら発音する
   useEffect(() => {
@@ -317,17 +317,18 @@ function TestRunner() {
     timeRatio = left / (TEST_TIME_LIMIT_SEC * 1000);
     hurry = sec <= 30;
   } else if (mode === "practice") {
-    const left = Math.max(0, qDeadline.current - now);
-    timerLabel = `⏳ ${Math.ceil(left / 1000)}秒`;
+    // 答え合わせ表示中は回答した時点の残り時間で止める
+    const left = picked !== null ? frozenLeft.current : Math.max(0, qDeadline.current - now);
+    timerLabel = picked !== null ? "✋ 確認中" : `⏳ ${Math.ceil(left / 1000)}秒`;
     timeRatio = left / (PRACTICE_SEC_PER_QUESTION * 1000);
-    hurry = left <= 2000;
+    hurry = picked === null && left <= 2000;
   }
 
   const modeLabel = mode === "review" ? "🔁 復習" : mode === "practice" ? `📚 練習 S${section}` : "🚀 テスト";
 
   return (
     <>
-      <div className={`card question-card ${picked === null ? "" : ok ? "correct" : "wrong"} ${timedOut ? "wrong" : ""}`}>
+      <div className={`card question-card ${picked === null ? "" : ok ? "correct" : "wrong"}`}>
         <div className="test-top">
           <span className={`mode-tag ${mode}`}>{modeLabel}</span>
           <span>
@@ -361,8 +362,8 @@ function TestRunner() {
           <button className="speak-btn" onClick={() => speak(q.phrase, true)}>
             🔊 発音を聞く
           </button>
-          {picked !== null && <div className={`feedback ${ok ? "ok" : "ng"}`}>{ok ? "◯" : "✕"}</div>}
-          {timedOut && <div className="feedback ng timeout">時間切れ</div>}
+          {picked !== null && picked !== TIMED_OUT && <div className={`feedback ${ok ? "ok" : "ng"}`}>{ok ? "◯" : "✕"}</div>}
+          {picked === TIMED_OUT && <div className="feedback ng timeout">時間切れ</div>}
         </div>
 
         <div className="choices">
@@ -421,7 +422,8 @@ function TestRunner() {
       </div>
       <p className="muted center">
         {mode === "test" && "選ぶとすぐ次の問題へ。答え合わせは最後にまとめて！（1・2・3キーでも回答できます）"}
-        {mode === "practice" && `1問${PRACTICE_SEC_PER_QUESTION}秒以内に答えよう！（1・2・3キーでも回答できます）`}
+        {mode === "practice" &&
+          `1問${PRACTICE_SEC_PER_QUESTION}秒以内に答えよう！答え合わせを確認したら「次へ」（1・2・3キーで回答、Enterで次へ）`}
         {mode === "review" && "キーボードなら 1・2・3 で回答、Enter で次へ"}
       </p>
     </>
@@ -510,7 +512,7 @@ function ResultView({
           <div className="result-title">
             {mark === "◎" && <span className="mark perfect">◎ 満点クリア！</span>}
             {mark === "○" && <span className="mark pass">○ クリア！</span>}
-            {mark === "" && <span className="mark none">あと{40 - result.score}問でクリア（○）</span>}
+            {mark === "" && <span className="mark none">あと{PASS_SCORE - result.score}問でクリア（○）</span>}
             {result.newBest && <span className="badge" style={{ background: "#f97316", marginLeft: 8 }}>🆕 自己ベスト</span>}
           </div>
         ) : (
