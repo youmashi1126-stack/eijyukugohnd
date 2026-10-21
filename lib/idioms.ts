@@ -7,6 +7,7 @@ export const idioms = raw as Idiom[];
 const byId = new Map(idioms.map((i) => [i.id, i]));
 
 export const QUESTION_COUNT = 100;
+export const REVIEW_MAX = 50;
 
 export function getIdiom(id: number): Idiom | undefined {
   return byId.get(id);
@@ -34,9 +35,10 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-// 1000問からランダムに100問選び、正解1つ＋他の熟語の意味2つの3択を作る
-export function generateTest(): Question[] {
-  const chosen = shuffle(idioms).slice(0, QUESTION_COUNT);
+// 1000問（復習なら間違えた問題）からランダムに選び、正解1つ＋他の熟語の意味2つの3択を作る
+export function generateTest(fromIds?: number[]): Question[] {
+  const pool = fromIds ? fromIds.map((id) => byId.get(id)).filter((i): i is Idiom => !!i) : idioms;
+  const chosen = shuffle(pool).slice(0, fromIds ? REVIEW_MAX : QUESTION_COUNT);
   return chosen.map((idiom) => {
     const own = senses(idiom.meaning);
     const correct = pick(own);
@@ -48,7 +50,8 @@ export function generateTest(): Question[] {
       if (own.includes(s) || distractors.includes(s)) continue;
       distractors.push(s);
     }
-    return { id: idiom.id, phrase: idiom.phrase, choices: shuffle([correct, ...distractors]) };
+    const choices = shuffle([correct, ...distractors]);
+    return { id: idiom.id, phrase: idiom.phrase, choices, answer: choices.indexOf(correct) };
   });
 }
 

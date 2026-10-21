@@ -9,10 +9,15 @@ interface Store {
   addUser(user: User): Promise<boolean>;
   addResult(number: number, result: TestResult): Promise<void>;
   getResults(numbers: number[]): Promise<Record<number, TestResult[]>>;
+  // 復習コーナー用：まだ正解していない（間違えた）問題の番号
+  getWrong(number: number): Promise<number[]>;
+  getWrongCounts(numbers: number[]): Promise<Record<number, number>>;
+  updateWrong(number: number, add: number[], remove: number[]): Promise<void>;
 }
 
 const USERS_KEY = "eijukugo:users";
 const resultsKey = (n: number) => `eijukugo:results:${n}`;
+const wrongKey = (n: number) => `eijukugo:wrong:${n}`;
 
 // Upstash は JSON を自動でパースして返すことがあるので両方に対応する
 function parse<T>(v: unknown): T {
@@ -47,10 +52,34 @@ class RedisStore implements Store {
     });
     return out;
   }
+
+  async getWrong(number: number) {
+    const ids = await this.redis.smembers(wrongKey(number));
+    return ids.map(Number);
+  }
+
+  async getWrongCounts(numbers: number[]) {
+    const out: Record<number, number> = {};
+    if (numbers.length === 0) return out;
+    const p = this.redis.pipeline();
+    for (const n of numbers) p.scard(wrongKey(n));
+    const counts = await p.exec<number[]>();
+    numbers.forEach((n, i) => {
+      out[n] = counts[i] ?? 0;
+    });
+    return out;
+  }
+
+  async updateWrong(number: number, add: number[], remove: number[]) {
+    const p = this.redis.pipeline();
+    if (remove.length > 0) p.srem(wrongKey(number), ...remove);
+    if (add.length > 0) p.sadd(wrongKey(number), add[0], ...add.slice(1));
+    if (add.length + remove.length > 0) await p.exec();
+  }
 }
 
 // 環境変数が無いとき（ローカル開発）用。.data/db.json に保存する
-type Db = { users: Record<string, User>; results: Record<string, TestResult[]> };
+type Db = { users: Record<string, User>; results: Record<string, TestResult[]>; wrong?: Record<string, number[]> };
 
 class LocalStore implements Store {
   private file = path.join(process.cwd(), ".data", "db.json");
@@ -93,6 +122,25 @@ class LocalStore implements Store {
     const out: Record<number, TestResult[]> = {};
     for (const n of numbers) out[n] = this.db.results[n] ?? [];
     return out;
+  }
+
+  async getWrong(number: number) {
+    return this.db.wrong?.[number] ?? [];
+  }
+
+  async getWrongCounts(numbers: number[]) {
+    const out: Record<number, number> = {};
+    for (const n of numbers) out[n] = this.db.wrong?.[n]?.length ?? 0;
+    return out;
+  }
+
+  async updateWrong(number: number, add: number[], remove: number[]) {
+    const wrong = (this.db.wrong ??= {});
+    const set = new Set(wrong[number] ?? []);
+    for (const id of remove) set.delete(id);
+    for (const id of add) set.add(id);
+    wrong[number] = [...set];
+    this.save();
   }
 }
 
