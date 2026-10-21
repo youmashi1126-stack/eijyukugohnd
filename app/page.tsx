@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { clearMyNumber, formatDate, loadMyNumber, saveMyNumber } from "@/lib/me";
 import { titleFor } from "@/lib/titles";
+import StorageWarning from "./StorageWarning";
 import { MAX_NUMBER, MIN_NUMBER, practiceSummary, SECTION_COUNT, type Player } from "@/lib/types";
 
 const NUMBERS = Array.from({ length: MAX_NUMBER - MIN_NUMBER + 1 }, (_, i) => i + MIN_NUMBER);
@@ -19,21 +20,18 @@ export default function Home() {
   const [players, setPlayers] = useState<Player[] | null>(null);
   const [myNumber, setMyNumber] = useState<number | null>(null);
   const [loadError, setLoadError] = useState("");
+  const [persistent, setPersistent] = useState(true);
 
   async function load() {
     try {
       const res = await fetch("/api/players", { cache: "no-store" });
       const data = await res.json();
+      if (!res.ok || !Array.isArray(data.players)) throw new Error("load failed");
       const list: Player[] = data.players;
-      const saved = loadMyNumber();
-      // データがリセットされていた場合などは端末の記憶も消す
-      if (saved !== null && !list.some((p) => p.number === saved)) {
-        clearMyNumber();
-        setMyNumber(null);
-      } else {
-        setMyNumber(saved);
-      }
+      // 一覧に見つからない番号は登録画面を出す（一時的な不具合で端末の記憶を消さないよう、ここでは消さない）
+      setMyNumber(loadMyNumber());
       setPlayers(list);
+      setPersistent(data.persistent !== false);
     } catch {
       setLoadError("データを読み込めませんでした。再読み込みしてください。");
     }
@@ -49,26 +47,32 @@ export default function Home() {
   const me = players.find((p) => p.number === myNumber);
   if (me) {
     return (
-      <Welcome
-        me={me}
-        total={players.filter((p) => p.count > 0).length}
-        onSwitch={() => {
-          clearMyNumber();
-          setMyNumber(null);
-        }}
-      />
+      <>
+        <StorageWarning persistent={persistent} />
+        <Welcome
+          me={me}
+          total={players.filter((p) => p.count > 0).length}
+          onSwitch={() => {
+            clearMyNumber();
+            setMyNumber(null);
+          }}
+        />
+      </>
     );
   }
 
   return (
-    <Register
-      players={players}
-      onDone={(n) => {
-        saveMyNumber(n);
-        setMyNumber(n);
-        load();
-      }}
-    />
+    <>
+      <StorageWarning persistent={persistent} />
+      <Register
+        players={players}
+        onDone={(n) => {
+          saveMyNumber(n);
+          setMyNumber(n);
+          load();
+        }}
+      />
+    </>
   );
 }
 

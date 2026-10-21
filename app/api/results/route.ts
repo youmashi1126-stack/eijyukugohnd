@@ -20,6 +20,7 @@ export async function POST(req: Request) {
   const section = body?.section;
   const answers: Answer[] = Array.isArray(body?.answers) ? body.answers : [];
   const durationSec = Number.isFinite(body?.durationSec) ? Math.max(0, Math.round(body.durationSec)) : 0;
+  const attemptId = typeof body?.attemptId === "string" ? body.attemptId.slice(0, 64) : undefined;
 
   if (!isValidNumber(number)) {
     return NextResponse.json({ error: "番号が正しくありません" }, { status: 400 });
@@ -28,8 +29,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "セクションが正しくありません" }, { status: 400 });
   }
   const store = getStore();
-  const users = await store.getUsers();
-  if (!users.some((u) => u.number === number)) {
+  if (!(await store.hasUser(number))) {
     return NextResponse.json({ error: "未登録の番号です" }, { status: 404 });
   }
 
@@ -54,21 +54,12 @@ export async function POST(req: Request) {
   });
   const score = details.filter((d) => d.correct).length;
 
-  // 間違えた問題は復習リストへ、正解した問題はリストから外す
-  await store.updateWrong(
-    number,
-    details.filter((d) => !d.correct).map((d) => d.id),
-    details.filter((d) => d.correct).map((d) => d.id),
-  );
-
-  let newBest = false;
-  if (mode === "test") {
-    // ランキングに入るのは本番テストのみ
-    await store.addResult(number, { score, at: new Date().toISOString(), durationSec });
-  } else if (mode === "practice") {
-    newBest = await store.setPracticeBest(number, section, score);
-  }
-  const best = mode === "practice" ? (await store.getPractice([number]))[number][section] : undefined;
-  const remaining = (await store.getWrong(number)).length;
+  // 間違えた問題は復習リストへ、正解した問題はリストから外す。ランキングに入るのは本番テストのみ
+  const { remaining, best, newBest } = await store.record(number, {
+    wrongAdd: details.filter((d) => !d.correct).map((d) => d.id),
+    wrongRemove: details.filter((d) => d.correct).map((d) => d.id),
+    result: mode === "test" ? { score, at: new Date().toISOString(), durationSec, attemptId } : undefined,
+    practice: mode === "practice" ? { section, score } : undefined,
+  });
   return NextResponse.json({ score, total: answers.length, details, remaining, newBest, best });
 }

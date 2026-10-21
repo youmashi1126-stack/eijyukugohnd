@@ -13,7 +13,8 @@ export const PASS_SCORE = 12;
 
 export type User = { number: number; nickname: string; createdAt: string };
 
-export type TestResult = { score: number; at: string; durationSec: number };
+// attemptId は通信の再試行で同じ結果が二重に記録されないようにするための識別子
+export type TestResult = { score: number; at: string; durationSec: number; attemptId?: string };
 
 export type Mode = "test" | "review" | "practice";
 

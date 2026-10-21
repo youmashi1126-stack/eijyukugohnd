@@ -20,6 +20,7 @@ import {
 const LABELS = ["ア", "イ", "ウ"];
 const FLASH_MS = 150; // 選んだ選択肢を一瞬光らせてから次へ
 const TIMED_OUT = -1; // picked に入れる「時間切れ」の印
+const SUBMIT_RETRIES = 3; // 結果送信の自動再試行回数
 const NEXT_DELAY_OK = 700; // 復習コーナーの答え合わせ表示
 const NEXT_DELAY_NG = 1800;
 
@@ -72,6 +73,8 @@ function TestRunner() {
   const picksRef = useRef<(number | null)[]>([]);
   const locked = useRef(false);
   const submitted = useRef(false);
+  const timeUpFired = useRef(false);
+  const attemptId = useRef("");
   const maxCombo = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -99,6 +102,8 @@ function TestRunner() {
         maxCombo.current = 0;
         locked.current = false;
         submitted.current = false;
+        timeUpFired.current = false;
+        attemptId.current = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
         setQuestions(data.questions);
         setPicked(null);
         setFlash(null);
@@ -128,45 +133,50 @@ function TestRunner() {
     if (timer.current) clearTimeout(timer.current);
   }, []);
 
+  // 結果の送信。通信が不安定でも記録が残るよう自動で再試行し、同じ解答の二重記録は attemptId でサーバーが防ぐ
   const submit = useCallback(
     async (timeUp = false) => {
       if (!questions || myNumber === null || submitted.current) return;
       submitted.current = true;
       locked.current = true;
+      if (timeUp) timeUpFired.current = true;
       let durationSec = Math.floor((Date.now() - startedAt.current) / 1000);
       if (mode === "test") durationSec = Math.min(durationSec, TEST_TIME_LIMIT_SEC);
+      const body = JSON.stringify({
+        number: myNumber,
+        mode,
+        section: mode === "practice" ? section : undefined,
+        durationSec,
+        attemptId: attemptId.current,
+        answers: questions.map((q, i) => {
+          const p = picksRef.current[i];
+          return { id: q.id, choice: p === null ? null : q.choices[p] };
+        }),
+      });
       setSubmitting(true);
       setError("");
-      try {
-        const res = await fetch("/api/results", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            number: myNumber,
-            mode,
-            section: mode === "practice" ? section : undefined,
-            durationSec,
-            answers: questions.map((q, i) => {
-              const p = picksRef.current[i];
-              return { id: q.id, choice: p === null ? null : q.choices[p] };
-            }),
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          submitted.current = false;
-          setError(data.error ?? "採点できませんでした");
-          return;
+      let lastError = "通信に失敗しました。";
+      for (let attempt = 0; attempt < SUBMIT_RETRIES; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, attempt * 1500));
+        try {
+          const res = await fetch("/api/results", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok) {
+            playSfx("finish");
+            setResult({ ...data, durationSec, maxCombo: maxCombo.current, timeUp: timeUpFired.current });
+            setSubmitting(false);
+            window.scrollTo(0, 0);
+            return;
+          }
+          lastError = data.error ?? "採点できませんでした。";
+          if (res.status < 500) break; // 解答データの誤りなどは再試行しても同じ
+        } catch {
+          lastError = "通信に失敗しました。";
         }
-        playSfx("finish");
-        setResult({ ...data, durationSec, maxCombo: maxCombo.current, timeUp });
-        window.scrollTo(0, 0);
-      } catch {
-        submitted.current = false;
-        setError("通信に失敗しました。もう一度「結果を送信」を押してください。");
-      } finally {
-        setSubmitting(false);
       }
+      submitted.current = false;
+      setSubmitting(false);
+      setError(`${lastError} 結果はまだ記録されていません。電波の良い場所で「結果を送信」を押してください。`);
     },
     [questions, myNumber, mode, section],
   );
@@ -240,10 +250,31 @@ function TestRunner() {
     return () => clearInterval(t);
   }, [questions, result]);
 
+  // テスト中にページを閉じたり戻ったりすると記録されないので確認する
+  useEffect(() => {
+    if (!questions || result || questions.length === 0) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
+    // ヘッダーのリンクなどアプリ内の移動も確認する
+    const onClick = (e: MouseEvent) => {
+      const a = (e.target as HTMLElement).closest("a");
+      if (a && !confirm("途中で移動すると結果は記録されません。移動しますか？")) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    document.addEventListener("click", onClick, true);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("click", onClick, true);
+    };
+  }, [questions, result]);
+
   // 制限時間のチェック
   useEffect(() => {
     if (!questions || result || questions.length === 0 || submitted.current) return;
-    if (mode === "test" && now >= startedAt.current + TEST_TIME_LIMIT_SEC * 1000) {
+    // 送信に失敗しても繰り返し自動送信しない（再送信は「結果を送信」ボタンで）
+    if (mode === "test" && !timeUpFired.current && now >= startedAt.current + TEST_TIME_LIMIT_SEC * 1000) {
       submit(true);
     }
     // 練習モードの時間切れ：未回答のまま正解を表示し、「次へ」を待つ

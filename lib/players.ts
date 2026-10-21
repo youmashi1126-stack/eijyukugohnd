@@ -3,14 +3,7 @@ import type { Player } from "./types";
 
 // 全参加者の受験回数・平均点を集計し、平均点の高い順に並べる
 export async function getPlayers(): Promise<Player[]> {
-  const store = getStore();
-  const users = await store.getUsers();
-  const numbers = users.map((u) => u.number);
-  const [results, wrongCounts, practice] = await Promise.all([
-    store.getResults(numbers),
-    store.getWrongCounts(numbers),
-    store.getPractice(numbers),
-  ]);
+  const { users, results, wrong, practice } = await getStore().getAll();
 
   const players: Player[] = users.map((u) => {
     const history = results[u.number] ?? [];
@@ -24,7 +17,7 @@ export async function getPlayers(): Promise<Player[]> {
       best: count > 0 ? Math.max(...history.map((r) => r.score)) : null,
       lastAt: count > 0 ? history[count - 1].at : null,
       rank: null,
-      wrongCount: wrongCounts[u.number] ?? 0,
+      wrongCount: wrong[u.number]?.length ?? 0,
       practice: practice[u.number] ?? {},
       history,
     };

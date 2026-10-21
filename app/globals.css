@@ -1507,3 +1507,11 @@ table.ranking {
   transition: left 0.6s;
   transform: scaleX(-1);
 }
+
+.storage-warning {
+  background: #fff4e5;
+  border: 2px solid #f59e0b;
+  color: #92400e;
+  font-weight: 700;
+  font-size: 14px;
+}

@@ -3,26 +3,84 @@ import fs from "node:fs";
 import path from "node:path";
 import type { TestResult, User } from "./types";
 
+export type AllData = {
+  users: User[];
+  results: Record<number, TestResult[]>;
+  wrong: Record<number, number[]>;
+  practice: Record<number, Record<number, number>>;
+};
+
+// 1回の解答送信で保存する内容
+export type SaveRequest = {
+  wrongAdd: number[]; // 間違えた問題（復習リストに追加）
+  wrongRemove: number[]; // 正解した問題（復習リストから外す）
+  result?: TestResult; // 本番テストの記録
+  practice?: { section: number; score: number }; // 練習モードの得点
+};
+
+export type RecordOutcome = { remaining: number; best?: number; newBest: boolean };
+
 interface Store {
+  readonly persistent: boolean;
   getUsers(): Promise<User[]>;
+  hasUser(number: number): Promise<boolean>;
   // 番号が未使用なら登録して true、使用済みなら false
   addUser(user: User): Promise<boolean>;
-  addResult(number: number, result: TestResult): Promise<void>;
-  getResults(numbers: number[]): Promise<Record<number, TestResult[]>>;
-  // 復習コーナー用：まだ正解していない（間違えた）問題の番号
+  getAll(): Promise<AllData>;
   getWrong(number: number): Promise<number[]>;
-  getWrongCounts(numbers: number[]): Promise<Record<number, number>>;
-  updateWrong(number: number, add: number[], remove: number[]): Promise<void>;
-  // 練習モード：セクションごとの最高点
-  getPractice(numbers: number[]): Promise<Record<number, Record<number, number>>>;
-  // 最高点を更新したら true
-  setPracticeBest(number: number, section: number, score: number): Promise<boolean>;
+  record(number: number, rec: SaveRequest): Promise<RecordOutcome>;
 }
 
+// 記録の反映（Redis・ローカル共通）。同じ解答の二重送信（通信の再試行など）は attemptId で弾く
+function apply(
+  history: TestResult[],
+  wrong: number[],
+  practice: Record<number, number>,
+  rec: SaveRequest,
+): { history: TestResult[]; wrong: number[]; practice: Record<number, number>; outcome: RecordOutcome } {
+  const set = new Set(wrong);
+  for (const id of rec.wrongRemove) set.delete(id);
+  for (const id of rec.wrongAdd) set.add(id);
+
+  let nextHistory = history;
+  if (rec.result && !(rec.result.attemptId && history.some((h) => h.attemptId === rec.result!.attemptId))) {
+    nextHistory = [...history, rec.result];
+  }
+
+  let nextPractice = practice;
+  let newBest = false;
+  let best: number | undefined;
+  if (rec.practice) {
+    const { section, score } = rec.practice;
+    const prev = practice[section];
+    if (prev === undefined || score > prev) {
+      nextPractice = { ...practice, [section]: score };
+      newBest = true;
+    }
+    best = nextPractice[section];
+  }
+  return { history: nextHistory, wrong: [...set], practice: nextPractice, outcome: { remaining: set.size, best, newBest } };
+}
+
+// ---------- Redis（Vercel 本番） ----------
+// 利用者ごとのデータを種類別に1つのハッシュにまとめ、ランキング表示などは数回のコマンドで読めるようにしている
+// （利用者ごとにキーを分けると、表示のたびに人数×3回のコマンドが必要になり Upstash の無料枠を超えやすい）
+
 const USERS_KEY = "eijukugo:users";
-const resultsKey = (n: number) => `eijukugo:results:${n}`;
-const wrongKey = (n: number) => `eijukugo:wrong:${n}`;
-const practiceKey = (n: number) => `eijukugo:practice:${n}`;
+const RESULTS_KEY = "eijukugo:v2:results";
+const WRONG_KEY = "eijukugo:v2:wrong";
+const PRACTICE_KEY = "eijukugo:v2:practice";
+const MIGRATED_KEY = "eijukugo:v2:migrated";
+// 旧形式（利用者ごとのキー）
+const oldResultsKey = (n: number) => `eijukugo:results:${n}`;
+const oldWrongKey = (n: number) => `eijukugo:wrong:${n}`;
+const oldPracticeKey = (n: number) => `eijukugo:practice:${n}`;
+
+// Upstash は JSON を自動でパースして返すことがあるので両方に対応する
+function parse<T>(v: unknown, fallback: T): T {
+  if (v === null || v === undefined) return fallback;
+  return (typeof v === "string" ? JSON.parse(v) : v) as T;
+}
 
 function toNumberRecord(obj: Record<string, unknown> | null | undefined): Record<number, number> {
   const out: Record<number, number> = {};
@@ -30,17 +88,59 @@ function toNumberRecord(obj: Record<string, unknown> | null | undefined): Record
   return out;
 }
 
-// Upstash は JSON を自動でパースして返すことがあるので両方に対応する
-function parse<T>(v: unknown): T {
-  return (typeof v === "string" ? JSON.parse(v) : v) as T;
+function byNumber<T>(hash: Record<string, unknown> | null, fallback: T): Record<number, T> {
+  const out: Record<number, T> = {};
+  for (const [k, v] of Object.entries(hash ?? {})) out[Number(k)] = parse<T>(v, fallback);
+  return out;
 }
 
 class RedisStore implements Store {
+  readonly persistent = true;
+  private migrated = false;
+
   constructor(private redis: Redis) {}
+
+  // 旧形式のデータがあれば一度だけ新形式へ移す
+  private async migrate() {
+    if (this.migrated) return;
+    if (await this.redis.get(MIGRATED_KEY)) {
+      this.migrated = true;
+      return;
+    }
+    const users = await this.getUsers();
+    if (users.length > 0) {
+      const p = this.redis.pipeline();
+      for (const u of users) {
+        p.lrange(oldResultsKey(u.number), 0, -1);
+        p.smembers(oldWrongKey(u.number));
+        p.hgetall(oldPracticeKey(u.number));
+      }
+      const res = await p.exec<unknown[]>();
+      const w = this.redis.pipeline();
+      users.forEach((u, i) => {
+        const results = ((res[i * 3] as unknown[]) ?? []).map((v) => parse<TestResult>(v, {} as TestResult));
+        const wrong = ((res[i * 3 + 1] as unknown[]) ?? []).map(Number);
+        const practice = toNumberRecord(res[i * 3 + 2] as Record<string, unknown> | null);
+        const f = String(u.number);
+        if (results.length) w.hsetnx(RESULTS_KEY, f, JSON.stringify(results));
+        if (wrong.length) w.hsetnx(WRONG_KEY, f, JSON.stringify(wrong));
+        if (Object.keys(practice).length) w.hsetnx(PRACTICE_KEY, f, JSON.stringify(practice));
+      });
+      w.set(MIGRATED_KEY, new Date().toISOString());
+      await w.exec();
+    } else {
+      await this.redis.set(MIGRATED_KEY, new Date().toISOString());
+    }
+    this.migrated = true;
+  }
 
   async getUsers() {
     const all = await this.redis.hgetall<Record<string, unknown>>(USERS_KEY);
-    return Object.values(all ?? {}).map((v) => parse<User>(v));
+    return Object.values(all ?? {}).map((v) => parse<User>(v, {} as User));
+  }
+
+  async hasUser(number: number) {
+    return (await this.redis.hexists(USERS_KEY, String(number))) === 1;
   }
 
   async addUser(user: User) {
@@ -48,67 +148,52 @@ class RedisStore implements Store {
     return ok === 1;
   }
 
-  async addResult(number: number, result: TestResult) {
-    await this.redis.rpush(resultsKey(number), JSON.stringify(result));
-  }
-
-  async getResults(numbers: number[]) {
-    const out: Record<number, TestResult[]> = {};
-    if (numbers.length === 0) return out;
+  async getAll() {
+    await this.migrate();
     const p = this.redis.pipeline();
-    for (const n of numbers) p.lrange(resultsKey(n), 0, -1);
-    const lists = await p.exec<unknown[][]>();
-    numbers.forEach((n, i) => {
-      out[n] = (lists[i] ?? []).map((v) => parse<TestResult>(v));
-    });
-    return out;
+    p.hgetall(USERS_KEY);
+    p.hgetall(RESULTS_KEY);
+    p.hgetall(WRONG_KEY);
+    p.hgetall(PRACTICE_KEY);
+    const [users, results, wrong, practice] = await p.exec<(Record<string, unknown> | null)[]>();
+    return {
+      users: Object.values(users ?? {}).map((v) => parse<User>(v, {} as User)),
+      results: byNumber<TestResult[]>(results, []),
+      wrong: byNumber<number[]>(wrong, []),
+      practice: byNumber<Record<number, number>>(practice, {}),
+    };
   }
 
   async getWrong(number: number) {
-    const ids = await this.redis.smembers(wrongKey(number));
-    return ids.map(Number);
+    await this.migrate();
+    return parse<number[]>(await this.redis.hget(WRONG_KEY, String(number)), []);
   }
 
-  async getWrongCounts(numbers: number[]) {
-    const out: Record<number, number> = {};
-    if (numbers.length === 0) return out;
+  async record(number: number, rec: SaveRequest) {
+    await this.migrate();
+    const f = String(number);
     const p = this.redis.pipeline();
-    for (const n of numbers) p.scard(wrongKey(n));
-    const counts = await p.exec<number[]>();
-    numbers.forEach((n, i) => {
-      out[n] = counts[i] ?? 0;
-    });
-    return out;
-  }
-
-  async updateWrong(number: number, add: number[], remove: number[]) {
-    const p = this.redis.pipeline();
-    if (remove.length > 0) p.srem(wrongKey(number), ...remove);
-    if (add.length > 0) p.sadd(wrongKey(number), add[0], ...add.slice(1));
-    if (add.length + remove.length > 0) await p.exec();
-  }
-
-  async getPractice(numbers: number[]) {
-    const out: Record<number, Record<number, number>> = {};
-    if (numbers.length === 0) return out;
-    const p = this.redis.pipeline();
-    for (const n of numbers) p.hgetall(practiceKey(n));
-    const all = await p.exec<(Record<string, unknown> | null)[]>();
-    numbers.forEach((n, i) => {
-      out[n] = toNumberRecord(all[i]);
-    });
-    return out;
-  }
-
-  async setPracticeBest(number: number, section: number, score: number) {
-    const prev = await this.redis.hget<number | string>(practiceKey(number), String(section));
-    if (prev !== null && Number(prev) >= score) return false;
-    await this.redis.hset(practiceKey(number), { [String(section)]: score });
-    return true;
+    p.hget(RESULTS_KEY, f);
+    p.hget(WRONG_KEY, f);
+    p.hget(PRACTICE_KEY, f);
+    const [h, w, pr] = await p.exec<unknown[]>();
+    const next = apply(
+      parse<TestResult[]>(h, []),
+      parse<number[]>(w, []),
+      toNumberRecord(parse<Record<string, unknown>>(pr, {})),
+      rec,
+    );
+    const q = this.redis.pipeline();
+    q.hset(WRONG_KEY, { [f]: JSON.stringify(next.wrong) });
+    if (rec.result) q.hset(RESULTS_KEY, { [f]: JSON.stringify(next.history) });
+    if (rec.practice) q.hset(PRACTICE_KEY, { [f]: JSON.stringify(next.practice) });
+    await q.exec();
+    return next.outcome;
   }
 }
 
-// 環境変数が無いとき（ローカル開発）用。.data/db.json に保存する
+// ---------- ローカル開発用（.data/db.json に保存） ----------
+
 type Db = {
   users: Record<string, User>;
   results: Record<string, TestResult[]>;
@@ -117,6 +202,8 @@ type Db = {
 };
 
 class LocalStore implements Store {
+  // Vercel 上ではファイルに書き込めず、サーバーが入れ替わるたびにデータが消える
+  readonly persistent = !process.env.VERCEL;
   private file = path.join(process.cwd(), ".data", "db.json");
   private db: Db;
 
@@ -141,6 +228,10 @@ class LocalStore implements Store {
     return Object.values(this.db.users);
   }
 
+  async hasUser(number: number) {
+    return !!this.db.users[number];
+  }
+
   async addUser(user: User) {
     if (this.db.users[user.number]) return false;
     this.db.users[user.number] = user;
@@ -148,48 +239,35 @@ class LocalStore implements Store {
     return true;
   }
 
-  async addResult(number: number, result: TestResult) {
-    (this.db.results[number] ??= []).push(result);
-    this.save();
-  }
-
-  async getResults(numbers: number[]) {
-    const out: Record<number, TestResult[]> = {};
-    for (const n of numbers) out[n] = this.db.results[n] ?? [];
-    return out;
+  async getAll() {
+    const results: Record<number, TestResult[]> = {};
+    const wrong: Record<number, number[]> = {};
+    const practice: Record<number, Record<number, number>> = {};
+    for (const k of Object.keys(this.db.users)) {
+      const n = Number(k);
+      results[n] = this.db.results[k] ?? [];
+      wrong[n] = this.db.wrong?.[k] ?? [];
+      practice[n] = toNumberRecord(this.db.practice?.[k]);
+    }
+    return { users: Object.values(this.db.users), results, wrong, practice };
   }
 
   async getWrong(number: number) {
     return this.db.wrong?.[number] ?? [];
   }
 
-  async getWrongCounts(numbers: number[]) {
-    const out: Record<number, number> = {};
-    for (const n of numbers) out[n] = this.db.wrong?.[n]?.length ?? 0;
-    return out;
-  }
-
-  async updateWrong(number: number, add: number[], remove: number[]) {
-    const wrong = (this.db.wrong ??= {});
-    const set = new Set(wrong[number] ?? []);
-    for (const id of remove) set.delete(id);
-    for (const id of add) set.add(id);
-    wrong[number] = [...set];
+  async record(number: number, rec: SaveRequest) {
+    const next = apply(
+      this.db.results[number] ?? [],
+      this.db.wrong?.[number] ?? [],
+      toNumberRecord(this.db.practice?.[number]),
+      rec,
+    );
+    this.db.results[number] = next.history;
+    (this.db.wrong ??= {})[number] = next.wrong;
+    (this.db.practice ??= {})[number] = next.practice;
     this.save();
-  }
-
-  async getPractice(numbers: number[]) {
-    const out: Record<number, Record<number, number>> = {};
-    for (const n of numbers) out[n] = toNumberRecord(this.db.practice?.[n]);
-    return out;
-  }
-
-  async setPracticeBest(number: number, section: number, score: number) {
-    const mine = ((this.db.practice ??= {})[number] ??= {});
-    if (mine[section] !== undefined && mine[section] >= score) return false;
-    mine[section] = score;
-    this.save();
-    return true;
+    return next.outcome;
   }
 }
 
