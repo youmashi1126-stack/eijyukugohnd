@@ -35,10 +35,14 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-// 1000問（復習なら間違えた問題）からランダムに選び、正解1つ＋他の熟語の意味2つの3択を作る
-export function generateTest(fromIds?: number[]): Question[] {
+export function idsInRange([from, to]: [number, number]): number[] {
+  return idioms.filter((i) => i.id >= from && i.id <= to).map((i) => i.id);
+}
+
+// 1000問（復習・練習なら指定した問題）からランダムに選び、正解1つ＋他の熟語の意味2つの3択を作る
+export function generateTest(fromIds?: number[], limit = QUESTION_COUNT): Question[] {
   const pool = fromIds ? fromIds.map((id) => byId.get(id)).filter((i): i is Idiom => !!i) : idioms;
-  const chosen = shuffle(pool).slice(0, fromIds ? REVIEW_MAX : QUESTION_COUNT);
+  const chosen = shuffle(pool).slice(0, limit);
   return chosen.map((idiom) => {
     const own = senses(idiom.meaning);
     const correct = pick(own);

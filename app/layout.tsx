@@ -23,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </Link>
           <nav className="site-nav">
             <Link href="/">🏠 ホーム</Link>
+            <Link href="/practice">📚 練習</Link>
             <Link href="/test?mode=review">🔁 復習</Link>
             <Link href="/ranking">🏆 ランキング</Link>
           </nav>

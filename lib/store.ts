@@ -13,11 +13,22 @@ interface Store {
   getWrong(number: number): Promise<number[]>;
   getWrongCounts(numbers: number[]): Promise<Record<number, number>>;
   updateWrong(number: number, add: number[], remove: number[]): Promise<void>;
+  // 練習モード：セクションごとの最高点
+  getPractice(numbers: number[]): Promise<Record<number, Record<number, number>>>;
+  // 最高点を更新したら true
+  setPracticeBest(number: number, section: number, score: number): Promise<boolean>;
 }
 
 const USERS_KEY = "eijukugo:users";
 const resultsKey = (n: number) => `eijukugo:results:${n}`;
 const wrongKey = (n: number) => `eijukugo:wrong:${n}`;
+const practiceKey = (n: number) => `eijukugo:practice:${n}`;
+
+function toNumberRecord(obj: Record<string, unknown> | null | undefined): Record<number, number> {
+  const out: Record<number, number> = {};
+  for (const [k, v] of Object.entries(obj ?? {})) out[Number(k)] = Number(v);
+  return out;
+}
 
 // Upstash は JSON を自動でパースして返すことがあるので両方に対応する
 function parse<T>(v: unknown): T {
@@ -76,10 +87,34 @@ class RedisStore implements Store {
     if (add.length > 0) p.sadd(wrongKey(number), add[0], ...add.slice(1));
     if (add.length + remove.length > 0) await p.exec();
   }
+
+  async getPractice(numbers: number[]) {
+    const out: Record<number, Record<number, number>> = {};
+    if (numbers.length === 0) return out;
+    const p = this.redis.pipeline();
+    for (const n of numbers) p.hgetall(practiceKey(n));
+    const all = await p.exec<(Record<string, unknown> | null)[]>();
+    numbers.forEach((n, i) => {
+      out[n] = toNumberRecord(all[i]);
+    });
+    return out;
+  }
+
+  async setPracticeBest(number: number, section: number, score: number) {
+    const prev = await this.redis.hget<number | string>(practiceKey(number), String(section));
+    if (prev !== null && Number(prev) >= score) return false;
+    await this.redis.hset(practiceKey(number), { [String(section)]: score });
+    return true;
+  }
 }
 
 // 環境変数が無いとき（ローカル開発）用。.data/db.json に保存する
-type Db = { users: Record<string, User>; results: Record<string, TestResult[]>; wrong?: Record<string, number[]> };
+type Db = {
+  users: Record<string, User>;
+  results: Record<string, TestResult[]>;
+  wrong?: Record<string, number[]>;
+  practice?: Record<string, Record<string, number>>;
+};
 
 class LocalStore implements Store {
   private file = path.join(process.cwd(), ".data", "db.json");
@@ -141,6 +176,20 @@ class LocalStore implements Store {
     for (const id of add) set.add(id);
     wrong[number] = [...set];
     this.save();
+  }
+
+  async getPractice(numbers: number[]) {
+    const out: Record<number, Record<number, number>> = {};
+    for (const n of numbers) out[n] = toNumberRecord(this.db.practice?.[n]);
+    return out;
+  }
+
+  async setPracticeBest(number: number, section: number, score: number) {
+    const mine = ((this.db.practice ??= {})[number] ??= {});
+    if (mine[section] !== undefined && mine[section] >= score) return false;
+    mine[section] = score;
+    this.save();
+    return true;
   }
 }
 

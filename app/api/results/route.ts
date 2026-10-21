@@ -1,19 +1,31 @@
 import { NextResponse } from "next/server";
 import { getIdiom, isCorrect, QUESTION_COUNT, REVIEW_MAX } from "@/lib/idioms";
 import { getStore } from "@/lib/store";
-import { isValidNumber, type Answer, type ReviewItem } from "@/lib/types";
+import {
+  isValidNumber,
+  isValidSection,
+  sectionRange,
+  SECTION_SIZE,
+  type Answer,
+  type DetailItem,
+  type Mode,
+} from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const number = body?.number;
-  const review = body?.mode === "review";
+  const mode: Mode = body?.mode === "review" || body?.mode === "practice" ? body.mode : "test";
+  const section = body?.section;
   const answers: Answer[] = Array.isArray(body?.answers) ? body.answers : [];
   const durationSec = Number.isFinite(body?.durationSec) ? Math.max(0, Math.round(body.durationSec)) : 0;
 
   if (!isValidNumber(number)) {
     return NextResponse.json({ error: "番号が正しくありません" }, { status: 400 });
+  }
+  if (mode === "practice" && !isValidSection(section)) {
+    return NextResponse.json({ error: "セクションが正しくありません" }, { status: 400 });
   }
   const store = getStore();
   const users = await store.getUsers();
@@ -22,7 +34,12 @@ export async function POST(req: Request) {
   }
 
   const ids = new Set(answers.map((a) => a?.id));
-  const countOk = review ? answers.length >= 1 && answers.length <= REVIEW_MAX : answers.length === QUESTION_COUNT;
+  let countOk: boolean;
+  if (mode === "review") countOk = answers.length >= 1 && answers.length <= REVIEW_MAX;
+  else if (mode === "practice") {
+    const [from, to] = sectionRange(section);
+    countOk = answers.length === SECTION_SIZE && answers.every((a) => a?.id >= from && a?.id <= to);
+  } else countOk = answers.length === QUESTION_COUNT;
   const valid =
     countOk &&
     ids.size === answers.length &&
@@ -31,28 +48,27 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "解答データが正しくありません" }, { status: 400 });
   }
 
-  const mistakes: ReviewItem[] = [];
-  const correctIds: number[] = [];
-  for (const a of answers) {
-    if (isCorrect(a.id, a.choice)) {
-      correctIds.push(a.id);
-    } else {
-      const idiom = getIdiom(a.id)!;
-      mistakes.push({ id: a.id, phrase: idiom.phrase, chosen: a.choice, meaning: idiom.meaning });
-    }
-  }
-  const score = correctIds.length;
+  const details: DetailItem[] = answers.map((a) => {
+    const idiom = getIdiom(a.id)!;
+    return { id: a.id, phrase: idiom.phrase, chosen: a.choice, meaning: idiom.meaning, correct: isCorrect(a.id, a.choice) };
+  });
+  const score = details.filter((d) => d.correct).length;
 
   // 間違えた問題は復習リストへ、正解した問題はリストから外す
   await store.updateWrong(
     number,
-    mistakes.map((m) => m.id),
-    correctIds,
+    details.filter((d) => !d.correct).map((d) => d.id),
+    details.filter((d) => d.correct).map((d) => d.id),
   );
-  // ランキングに入るのは本番テストのみ
-  if (!review) {
+
+  let newBest = false;
+  if (mode === "test") {
+    // ランキングに入るのは本番テストのみ
     await store.addResult(number, { score, at: new Date().toISOString(), durationSec });
+  } else if (mode === "practice") {
+    newBest = await store.setPracticeBest(number, section, score);
   }
+  const best = mode === "practice" ? (await store.getPractice([number]))[number][section] : undefined;
   const remaining = (await store.getWrong(number)).length;
-  return NextResponse.json({ score, total: answers.length, review: mistakes, remaining });
+  return NextResponse.json({ score, total: answers.length, details, remaining, newBest, best });
 }

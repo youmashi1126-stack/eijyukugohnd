@@ -3,7 +3,114 @@
 import { Fragment, useEffect, useState } from "react";
 import { formatDate, formatDuration, loadMyNumber } from "@/lib/me";
 import { titleFor } from "@/lib/titles";
-import type { Player } from "@/lib/types";
+import {
+  comparePractice,
+  markFor,
+  PASS_SCORE,
+  practiceSummary,
+  SECTION_COUNT,
+  SECTION_SIZE,
+  type Player,
+} from "@/lib/types";
+
+const SECTIONS = Array.from({ length: SECTION_COUNT }, (_, i) => i + 1);
+
+// 練習モードのランキング：クリア数 → ◎の数 → 合計点。20セクションの進み具合をマスで表示
+function PracticeRanking({ players, myNumber }: { players: Player[]; myNumber: number | null }) {
+  const sorted = [...players].sort(comparePractice);
+  const active = sorted.filter((p) => practiceSummary(p.practice).tried > 0);
+  const totalCleared = players.reduce((s, p) => s + practiceSummary(p.practice).cleared, 0);
+
+  // 同じ成績なら同順位
+  const ranks = new Map<number, number>();
+  active.forEach((p, i) => {
+    const prev = active[i - 1];
+    ranks.set(p.number, prev && comparePractice(prev, p) === prev.number - p.number ? ranks.get(prev.number)! : i + 1);
+  });
+
+  return (
+    <>
+      <div className="card hero practice-hero">
+        <h1>🏁 練習モード ランキング</h1>
+        <p className="muted" style={{ margin: 0 }}>
+          クリア（{PASS_SCORE}点以上の ○）の数で競争！同じなら ◎ の数、合計点で順位が決まります。
+        </p>
+        <div className="stats" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+          <div className="stat">
+            <div className="stat-label">挑戦中の人</div>
+            <div className="stat-value">
+              {active.length}/{players.length}
+            </div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">みんなのクリア数</div>
+            <div className="stat-value">{totalCleared}</div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">全セクション</div>
+            <div className="stat-value">{SECTION_COUNT}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="legend">
+          <span>
+            <i className="lg perfect" />◎ 満点
+          </span>
+          <span>
+            <i className="lg pass" />○ クリア
+          </span>
+          <span>
+            <i className="lg tried" />
+            挑戦中
+          </span>
+          <span>
+            <i className="lg" />
+            未挑戦
+          </span>
+        </div>
+        {sorted.length === 0 && <p className="muted">まだ登録者がいません。</p>}
+        <div className="race">
+          {sorted.map((p) => {
+            const sum = practiceSummary(p.practice);
+            const rank = ranks.get(p.number);
+            return (
+              <div key={p.number} className={`race-row ${p.number === myNumber ? "me" : ""}`}>
+                <div className="race-head">
+                  <span className="race-rank">{rank ? (rank <= 3 ? MEDALS[rank - 1] : `${rank}位`) : "-"}</span>
+                  <span className="race-no">No.{p.number}</span>
+                  <span className="race-name">
+                    {p.nickname}
+                    {p.number === myNumber && <span className="muted">（あなた）</span>}
+                  </span>
+                  <span className="race-score">
+                    <b>{sum.cleared}</b>/{SECTION_COUNT} <span className="perfect-count">◎{sum.perfect}</span>
+                  </span>
+                </div>
+                <div className="race-track">
+                  {SECTIONS.map((s) => {
+                    const best = p.practice[s];
+                    const mark = markFor(best);
+                    const state = mark === "◎" ? "perfect" : mark === "○" ? "pass" : best !== undefined ? "tried" : "";
+                    return (
+                      <span key={s} className={`cell ${state}`} title={`S${s}: ${best !== undefined ? `${best}/${SECTION_SIZE}` : "未挑戦"}`}>
+                        {mark || s}
+                      </span>
+                    );
+                  })}
+                  <span className="runner" style={{ left: `calc(${(sum.cleared / SECTION_COUNT) * 100}% - 12px)` }}>
+                    🏃
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
 
 type SortKey = "average" | "count" | "best" | "number";
 
@@ -35,9 +142,11 @@ export default function RankingPage() {
   const [sortKey, setSortKey] = useState<SortKey>("average");
   const [open, setOpen] = useState<number | null>(null);
   const [myNumber, setMyNumber] = useState<number | null>(null);
+  const [tab, setTab] = useState<"test" | "practice">("test");
 
   useEffect(() => {
     setMyNumber(loadMyNumber());
+    if (new URLSearchParams(window.location.search).get("tab") === "practice") setTab("practice");
     fetch("/api/players", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => setPlayers(d.players))
@@ -46,6 +155,26 @@ export default function RankingPage() {
 
   if (error) return <p className="error">{error}</p>;
   if (!players) return <p className="muted center">読み込み中…</p>;
+
+  const tabs = (
+    <div className="big-tabs">
+      <button className={tab === "test" ? "active" : ""} onClick={() => setTab("test")}>
+        🚀 テスト
+      </button>
+      <button className={tab === "practice" ? "active practice" : ""} onClick={() => setTab("practice")}>
+        📚 練習モード
+      </button>
+    </div>
+  );
+
+  if (tab === "practice") {
+    return (
+      <>
+        {tabs}
+        <PracticeRanking players={players} myNumber={myNumber} />
+      </>
+    );
+  }
 
   const tested = players.filter((p) => p.count > 0);
   const totalTests = players.reduce((s, p) => s + p.count, 0);
@@ -59,8 +188,9 @@ export default function RankingPage() {
 
   return (
     <>
+      {tabs}
       <div className="card hero">
-        <h1>🏆 ランキング</h1>
+        <h1>🏆 テストランキング</h1>
         <p className="muted" style={{ margin: 0 }}>
           全参加者の受験回数と平均点。行をタップすると、その人の全結果が見られます。
         </p>

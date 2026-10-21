@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { clearMyNumber, formatDate, loadMyNumber, saveMyNumber } from "@/lib/me";
 import { titleFor } from "@/lib/titles";
-import { MAX_NUMBER, MIN_NUMBER, type Player } from "@/lib/types";
+import { MAX_NUMBER, MIN_NUMBER, practiceSummary, SECTION_COUNT, type Player } from "@/lib/types";
 
 const NUMBERS = Array.from({ length: MAX_NUMBER - MIN_NUMBER + 1 }, (_, i) => i + MIN_NUMBER);
 
@@ -113,7 +113,14 @@ function Welcome({ me, total, onSwitch }: { me: Player; total: number; onSwitch:
         <Link href="/test" className="menu-card menu-test">
           <div className="menu-icon">🚀</div>
           <div className="menu-title">テストに挑戦</div>
-          <div className="menu-sub">ランダム100問・3択</div>
+          <div className="menu-sub">ランダム100問・制限時間2分30秒</div>
+        </Link>
+        <Link href="/practice" className="menu-card menu-practice">
+          <div className="menu-icon">📚</div>
+          <div className="menu-title">練習モード</div>
+          <div className="menu-sub">
+            20セクション クリア {practiceSummary(me.practice).cleared}/{SECTION_COUNT}・◎{practiceSummary(me.practice).perfect}
+          </div>
         </Link>
         {me.wrongCount > 0 ? (
           <Link href="/test?mode=review" className="menu-card menu-review">

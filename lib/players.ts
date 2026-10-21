@@ -6,7 +6,11 @@ export async function getPlayers(): Promise<Player[]> {
   const store = getStore();
   const users = await store.getUsers();
   const numbers = users.map((u) => u.number);
-  const [results, wrongCounts] = await Promise.all([store.getResults(numbers), store.getWrongCounts(numbers)]);
+  const [results, wrongCounts, practice] = await Promise.all([
+    store.getResults(numbers),
+    store.getWrongCounts(numbers),
+    store.getPractice(numbers),
+  ]);
 
   const players: Player[] = users.map((u) => {
     const history = results[u.number] ?? [];
@@ -21,6 +25,7 @@ export async function getPlayers(): Promise<Player[]> {
       lastAt: count > 0 ? history[count - 1].at : null,
       rank: null,
       wrongCount: wrongCounts[u.number] ?? 0,
+      practice: practice[u.number] ?? {},
       history,
     };
   });
