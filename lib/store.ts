@@ -271,15 +271,38 @@ class LocalStore implements Store {
   }
 }
 
+// Redis の接続先を環境変数から探す。
+// Vercel の Upstash 連携は KV_REST_API_*（接頭辞を付けた場合は 〇〇_KV_REST_API_*）、Upstash 直接なら UPSTASH_REDIS_REST_* が設定される
+function findRedisConfig(): { url: string; token: string } | null {
+  const env = process.env;
+  const keys = Object.keys(env);
+  for (const urlKey of keys.filter((k) => /(^|_)(KV_REST_API_URL|UPSTASH_REDIS_REST_URL)$/.test(k))) {
+    const token = env[urlKey.replace(/URL$/, "TOKEN")];
+    if (env[urlKey] && token) return { url: env[urlKey]!, token };
+  }
+  // Upstash の接続文字列（rediss://default:トークン@ホスト:6379）からも REST の接続先が分かる
+  const connKey = keys.find((k) => /(^|_)(REDIS_URL|KV_URL)$/.test(k) && /upstash\.io/.test(env[k] ?? ""));
+  if (connKey) {
+    try {
+      const u = new URL(env[connKey]!);
+      if (u.password) return { url: `https://${u.hostname}`, token: decodeURIComponent(u.password) };
+    } catch {}
+  }
+  return null;
+}
+
+// 保存先が見つからないときの手がかり（Redis 関連の環境変数の「名前」だけ。値は出さない）
+export function redisEnvNames(): string[] {
+  return Object.keys(process.env).filter((k) => /REDIS|UPSTASH|(^|_)KV_/.test(k));
+}
+
 let store: Store | undefined;
 
 export function getStore(): Store {
   if (store) return store;
-  // Vercel の Upstash 連携は KV_REST_API_*、Upstash 直接なら UPSTASH_REDIS_REST_* が設定される
-  const url = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (url && token) {
-    store = new RedisStore(new Redis({ url, token }));
+  const config = findRedisConfig();
+  if (config) {
+    store = new RedisStore(new Redis(config));
   } else {
     if (process.env.VERCEL) {
       console.warn("Redis の環境変数が未設定です。データは保存されません。");
