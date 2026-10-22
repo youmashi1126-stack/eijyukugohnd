@@ -35,6 +35,9 @@ export type RecordOutcome = {
 
 interface Store {
   readonly persistent: boolean;
+  // 保存先の種類と、Upstash からの移行元が見えているか（不具合調査用）
+  readonly kind: "d1" | "redis" | "local";
+  readonly canMigrate?: boolean;
   getUsers(): Promise<User[]>;
   hasUser(number: number): Promise<boolean>;
   // 番号が未使用なら登録して true、使用済みなら false
@@ -170,6 +173,7 @@ function byNumber<T>(hash: Record<string, unknown> | null, fallback: T): Record<
 
 class RedisStore implements Store {
   readonly persistent = true;
+  readonly kind = "redis";
   private migrated = false;
 
   constructor(private redis: Redis) {}
@@ -312,6 +316,7 @@ function isServerless() {
 
 class LocalStore implements Store {
   readonly persistent = !isServerless();
+  readonly kind = "local";
   private file = path.join(process.cwd(), ".data", "db.json");
   private db: Db;
 
@@ -416,13 +421,17 @@ type Kind = "results" | "practice" | "mastery" | "summary" | "wrong";
 
 class D1Store implements Store {
   readonly persistent = true;
+  readonly kind = "d1";
+  readonly canMigrate: boolean;
   private ready: Promise<void> | null = null;
 
   // redis があれば、D1 が空のときに Upstash のデータを一度だけ写す
   constructor(
     private db: D1Like,
     private redis: Redis | null,
-  ) {}
+  ) {
+    this.canMigrate = !!redis;
+  }
 
   private init() {
     this.ready ??= (async () => {
