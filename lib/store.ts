@@ -2,7 +2,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { Redis } from "@upstash/redis";
 import fs from "node:fs";
 import path from "node:path";
-import type { SetId } from "./sets";
+import { SET_IDS, type SetId } from "./sets";
 import { MASTERY_GOAL, MASTERY_POINTS, type Mastery, type TestResult, type User } from "./types";
 
 // 1人分の習熟データ：問題番号 → [習熟ポイント, 要復習(1/0)]。a は同じ解答を二重に反映しないための最近の送信ID
@@ -33,11 +33,24 @@ export type RecordOutcome = {
   progress: Record<string, Mastery>; // 今回答えた問題の習熟状況
 };
 
+// 保存しているデータの種類（wrong は以前の復習リスト。英熟語のみ）
+export const KINDS = ["results", "practice", "mastery", "summary", "wrong"] as const;
+export type Kind = (typeof KINDS)[number];
+
+// バックアップファイルの中身：登録者と、モード × 種類ごとの「番号 → 値」
+export type Dump = {
+  app: "eijukugo";
+  version: 1;
+  exportedAt: string;
+  users: Record<string, User>;
+  records: { set: SetId; kind: Kind; data: Record<string, unknown> }[];
+};
+
+export type ImportCount = { users: number; records: number };
+
 interface Store {
   readonly persistent: boolean;
-  // 保存先の種類と、Upstash からの移行元が見えているか（不具合調査用）
   readonly kind: "d1" | "redis" | "local";
-  readonly canMigrate?: boolean;
   getUsers(): Promise<User[]>;
   hasUser(number: number): Promise<boolean>;
   // 番号が未使用なら登録して true、使用済みなら false
@@ -45,9 +58,26 @@ interface Store {
   getAll(set: SetId): Promise<AllData>;
   getReviewIds(number: number, set: SetId): Promise<string[]>;
   record(number: number, set: SetId, rec: SaveRequest): Promise<RecordOutcome>;
+  // バックアップ：全データの書き出しと読み込み（読み込みはファイルにある番号の分だけ上書き）
+  exportData(): Promise<Dump>;
+  importData(dump: Dump): Promise<ImportCount>;
+  // 管理者パスワード（ハッシュ）。setAdminSecret はまだ設定されていないときだけ保存して true
+  getAdminSecret(): Promise<string | null>;
+  setAdminSecret(secret: string): Promise<boolean>;
 }
 
 const KEEP_ATTEMPTS = 20;
+
+function makeDump(users: Record<string, User>, records: Dump["records"]): Dump {
+  return { app: "eijukugo", version: 1, exportedAt: new Date().toISOString(), users, records };
+}
+
+function countDump(dump: Dump): ImportCount {
+  return {
+    users: Object.keys(dump.users).length,
+    records: dump.records.reduce((s, r) => s + Object.values(r.data).filter((v) => v !== null).length, 0),
+  };
+}
 
 // 以前の復習リスト（問題番号の配列、または { items: {番号: 回数} }）を習熟データに読み替える。リストにあった問題は要復習
 function fromLegacyWrong(v: unknown): MasteryState {
@@ -73,7 +103,7 @@ function summarize(state: MasteryState): Summary {
   return { mastered, review };
 }
 
-// 記録の反映（Redis・ローカル共通）
+// 記録の反映（どの保存先でも共通）
 function apply(
   history: TestResult[],
   practice: Record<number, number>,
@@ -131,22 +161,23 @@ function apply(
   };
 }
 
-// ---------- Redis（Vercel 本番） ----------
+function toNumberRecord(obj: Record<string, unknown> | null | undefined): Record<number, number> {
+  const out: Record<number, number> = {};
+  for (const [k, v] of Object.entries(obj ?? {})) out[Number(k)] = Number(v);
+  return out;
+}
+
+// ---------- Upstash Redis（Vercel 版） ----------
 // 利用者ごとのデータを種類別に1つのハッシュ（フィールド名＝番号）にまとめ、ランキング表示などは数回のコマンドで読めるようにしている
 // 習熟データは1人分が大きいので、一覧表示用には覚えた数・復習数だけの summary を別に持つ
 
 const USERS_KEY = "eijukugo:users";
+const ADMIN_KEY = "eijukugo:admin";
 const MIGRATED_KEY = "eijukugo:v2:migrated";
 // 英熟語は以前からのキーをそのまま使い、英単語は別のキーに保存する
-function keysFor(set: SetId) {
-  const p = set === "idiom" ? "eijukugo:v2:" : "eijukugo:v2:word:";
-  return {
-    results: `${p}results`,
-    practice: `${p}practice`,
-    mastery: `${p}mastery`,
-    summary: `${p}summary`,
-    legacyWrong: set === "idiom" ? "eijukugo:v2:wrong" : null,
-  };
+function redisKey(set: SetId, kind: Kind): string | null {
+  if (kind === "wrong") return set === "idiom" ? "eijukugo:v2:wrong" : null;
+  return `${set === "idiom" ? "eijukugo:v2:" : "eijukugo:v2:word:"}${kind}`;
 }
 // 最初の形式（利用者ごとのキー）
 const oldResultsKey = (n: number) => `eijukugo:results:${n}`;
@@ -157,12 +188,6 @@ const oldPracticeKey = (n: number) => `eijukugo:practice:${n}`;
 function parse<T>(v: unknown, fallback: T): T {
   if (v === null || v === undefined) return fallback;
   return (typeof v === "string" ? JSON.parse(v) : v) as T;
-}
-
-function toNumberRecord(obj: Record<string, unknown> | null | undefined): Record<number, number> {
-  const out: Record<number, number> = {};
-  for (const [k, v] of Object.entries(obj ?? {})) out[Number(k)] = Number(v);
-  return out;
 }
 
 function byNumber<T>(hash: Record<string, unknown> | null, fallback: T): Record<number, T> {
@@ -186,7 +211,6 @@ class RedisStore implements Store {
       return;
     }
     const users = await this.getUsers();
-    const k = keysFor("idiom");
     if (users.length > 0) {
       const p = this.redis.pipeline();
       for (const u of users) {
@@ -201,9 +225,9 @@ class RedisStore implements Store {
         const wrong = ((res[i * 3 + 1] as unknown[]) ?? []).map(Number);
         const practice = toNumberRecord(res[i * 3 + 2] as Record<string, unknown> | null);
         const f = String(u.number);
-        if (results.length) w.hsetnx(k.results, f, JSON.stringify(results));
-        if (wrong.length) w.hsetnx(k.legacyWrong!, f, JSON.stringify(wrong));
-        if (Object.keys(practice).length) w.hsetnx(k.practice, f, JSON.stringify(practice));
+        if (results.length) w.hsetnx(redisKey("idiom", "results")!, f, JSON.stringify(results));
+        if (wrong.length) w.hsetnx(redisKey("idiom", "wrong")!, f, JSON.stringify(wrong));
+        if (Object.keys(practice).length) w.hsetnx(redisKey("idiom", "practice")!, f, JSON.stringify(practice));
       });
       w.set(MIGRATED_KEY, new Date().toISOString());
       await w.exec();
@@ -229,13 +253,13 @@ class RedisStore implements Store {
 
   async getAll(set: SetId) {
     await this.migrate();
-    const k = keysFor(set);
+    const legacyKey = redisKey(set, "wrong");
     const p = this.redis.pipeline();
     p.hgetall(USERS_KEY);
-    p.hgetall(k.results);
-    p.hgetall(k.practice);
-    p.hgetall(k.summary);
-    if (k.legacyWrong) p.hgetall(k.legacyWrong);
+    p.hgetall(redisKey(set, "results")!);
+    p.hgetall(redisKey(set, "practice")!);
+    p.hgetall(redisKey(set, "summary")!);
+    if (legacyKey) p.hgetall(legacyKey);
     const [users, results, practice, summary, legacy] = await p.exec<(Record<string, unknown> | null)[]>();
     const sums = byNumber<Summary>(summary, { mastered: 0, review: 0 });
     // 習熟データがまだない人は、以前の復習リストの数を復習数として使う
@@ -253,15 +277,15 @@ class RedisStore implements Store {
   private async loadMastery(set: SetId, f: string, masteryRaw: unknown): Promise<MasteryState> {
     const state = toMasteryState(parse<unknown>(masteryRaw, null));
     if (state) return state;
-    const k = keysFor(set);
-    if (!k.legacyWrong) return { m: {}, a: [] };
-    return fromLegacyWrong(parse<unknown>(await this.redis.hget(k.legacyWrong, f), null));
+    const legacyKey = redisKey(set, "wrong");
+    if (!legacyKey) return { m: {}, a: [] };
+    return fromLegacyWrong(parse<unknown>(await this.redis.hget(legacyKey, f), null));
   }
 
   async getReviewIds(number: number, set: SetId) {
     await this.migrate();
     const f = String(number);
-    const state = await this.loadMastery(set, f, await this.redis.hget(keysFor(set).mastery, f));
+    const state = await this.loadMastery(set, f, await this.redis.hget(redisKey(set, "mastery")!, f));
     return Object.entries(state.m)
       .filter(([, [, r]]) => r)
       .map(([id]) => id);
@@ -269,12 +293,11 @@ class RedisStore implements Store {
 
   async record(number: number, set: SetId, rec: SaveRequest) {
     await this.migrate();
-    const k = keysFor(set);
     const f = String(number);
     const p = this.redis.pipeline();
-    p.hget(k.results, f);
-    p.hget(k.practice, f);
-    p.hget(k.mastery, f);
+    p.hget(redisKey(set, "results")!, f);
+    p.hget(redisKey(set, "practice")!, f);
+    p.hget(redisKey(set, "mastery")!, f);
     const [h, pr, ms] = await p.exec<unknown[]>();
     const next = apply(
       parse<TestResult[]>(h, []),
@@ -283,121 +306,63 @@ class RedisStore implements Store {
       rec,
     );
     const q = this.redis.pipeline();
-    q.hset(k.mastery, { [f]: JSON.stringify(next.state) });
-    q.hset(k.summary, { [f]: JSON.stringify(summarize(next.state)) });
-    if (rec.result) q.hset(k.results, { [f]: JSON.stringify(next.history) });
-    if (rec.practice) q.hset(k.practice, { [f]: JSON.stringify(next.practice) });
+    q.hset(redisKey(set, "mastery")!, { [f]: JSON.stringify(next.state) });
+    q.hset(redisKey(set, "summary")!, { [f]: JSON.stringify(summarize(next.state)) });
+    if (rec.result) q.hset(redisKey(set, "results")!, { [f]: JSON.stringify(next.history) });
+    if (rec.practice) q.hset(redisKey(set, "practice")!, { [f]: JSON.stringify(next.practice) });
     await q.exec();
     return next.outcome;
   }
-}
 
-// ---------- ローカル開発用（.data/db.json に保存） ----------
-
-type SetData = {
-  results: Record<string, TestResult[]>;
-  practice: Record<string, Record<string, number>>;
-  mastery: Record<string, MasteryState>;
-};
-
-type Db = {
-  users: Record<string, User>;
-  sets: Partial<Record<SetId, SetData>>;
-  // 以前の形式（英熟語のみ）
-  results?: Record<string, TestResult[]>;
-  practice?: Record<string, Record<string, number>>;
-  wrong?: Record<string, unknown>;
-};
-
-// Vercel・Cloudflare 上ではファイルに書き込めず、サーバーが入れ替わるたびにデータが消える
-function isServerless() {
-  return !!process.env.VERCEL || (typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers");
-}
-
-class LocalStore implements Store {
-  readonly persistent = !isServerless();
-  readonly kind = "local";
-  private file = path.join(process.cwd(), ".data", "db.json");
-  private db: Db;
-
-  constructor() {
-    try {
-      this.db = JSON.parse(fs.readFileSync(this.file, "utf8"));
-    } catch {
-      this.db = { users: {}, sets: {} };
+  async exportData() {
+    await this.migrate();
+    const plan: { set: SetId; kind: Kind; key: string }[] = [];
+    for (const set of SET_IDS) {
+      for (const kind of KINDS) {
+        const key = redisKey(set, kind);
+        if (key) plan.push({ set, kind, key });
+      }
     }
-    this.db.sets ??= {};
-    if (!this.db.sets.idiom && (this.db.results || this.db.wrong)) {
-      this.db.sets.idiom = {
-        results: this.db.results ?? {},
-        practice: this.db.practice ?? {},
-        mastery: Object.fromEntries(Object.entries(this.db.wrong ?? {}).map(([n, v]) => [n, fromLegacyWrong(v)])),
-      };
+    const p = this.redis.pipeline();
+    p.hgetall(USERS_KEY);
+    for (const item of plan) p.hgetall(item.key);
+    const [users, ...hashes] = await p.exec<(Record<string, unknown> | null)[]>();
+    const records = plan.map((item, i) => ({
+      set: item.set,
+      kind: item.kind,
+      data: Object.fromEntries(Object.entries(hashes[i] ?? {}).map(([n, v]) => [n, parse(v, null)])),
+    }));
+    return makeDump(Object.fromEntries(Object.entries(users ?? {}).map(([n, v]) => [n, parse<User>(v, {} as User)])), records);
+  }
+
+  async importData(dump: Dump) {
+    const p = this.redis.pipeline();
+    const users = Object.fromEntries(Object.entries(dump.users).map(([n, u]) => [n, JSON.stringify(u)]));
+    if (Object.keys(users).length) p.hset(USERS_KEY, users);
+    for (const r of dump.records) {
+      const key = redisKey(r.set, r.kind);
+      const data = Object.fromEntries(
+        Object.entries(r.data)
+          .filter(([, v]) => v !== null)
+          .map(([n, v]) => [n, JSON.stringify(v)]),
+      );
+      if (key && Object.keys(data).length) p.hset(key, data);
     }
+    await p.exec();
+    return countDump(dump);
   }
 
-  private data(set: SetId): SetData {
-    return (this.db.sets[set] ??= { results: {}, practice: {}, mastery: {} });
+  async getAdminSecret() {
+    return (await this.redis.get<string>(ADMIN_KEY)) ?? null;
   }
 
-  private save() {
-    try {
-      fs.mkdirSync(path.dirname(this.file), { recursive: true });
-      fs.writeFileSync(this.file, JSON.stringify(this.db, null, 2));
-    } catch {
-      // 書き込めない環境ではメモリ上だけで保持する
-    }
-  }
-
-  async getUsers() {
-    return Object.values(this.db.users);
-  }
-
-  async hasUser(number: number) {
-    return !!this.db.users[number];
-  }
-
-  async addUser(user: User) {
-    if (this.db.users[user.number]) return false;
-    this.db.users[user.number] = user;
-    this.save();
-    return true;
-  }
-
-  async getAll(set: SetId) {
-    const d = this.data(set);
-    const results: Record<number, TestResult[]> = {};
-    const practice: Record<number, Record<number, number>> = {};
-    const summary: Record<number, Summary> = {};
-    for (const k of Object.keys(this.db.users)) {
-      const n = Number(k);
-      results[n] = d.results[k] ?? [];
-      practice[n] = toNumberRecord(d.practice[k]);
-      summary[n] = summarize(d.mastery[k] ?? { m: {}, a: [] });
-    }
-    return { users: Object.values(this.db.users), results, practice, summary };
-  }
-
-  async getReviewIds(number: number, set: SetId) {
-    const state = this.data(set).mastery[number] ?? { m: {}, a: [] };
-    return Object.entries(state.m)
-      .filter(([, [, r]]) => r)
-      .map(([id]) => id);
-  }
-
-  async record(number: number, set: SetId, rec: SaveRequest) {
-    const d = this.data(set);
-    const next = apply(d.results[number] ?? [], toNumberRecord(d.practice[number]), d.mastery[number] ?? { m: {}, a: [] }, rec);
-    d.results[number] = next.history;
-    d.practice[number] = next.practice;
-    d.mastery[number] = next.state;
-    this.save();
-    return next.outcome;
+  async setAdminSecret(secret: string) {
+    return (await this.redis.set(ADMIN_KEY, secret, { nx: true })) === "OK";
   }
 }
 
-// ---------- Cloudflare D1（Cloudflare 本番） ----------
-// Redis と同じく「種類 × 番号」ごとに JSON を1行で持つ。テーブルは初回アクセス時に自動で作る
+// ---------- Cloudflare D1（Cloudflare 版） ----------
+// Redis と同じく「モード × 種類 × 番号」ごとに JSON を1行で持つ。テーブルは初回アクセス時に自動で作る
 
 type D1Result<T> = { results: T[]; meta: { changes: number } };
 interface D1Stmt {
@@ -414,51 +379,27 @@ interface D1Like {
 const D1_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS users (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
   "CREATE TABLE IF NOT EXISTS records (set_id TEXT NOT NULL, kind TEXT NOT NULL, number INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (set_id, kind, number))",
+  "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
 ];
-const UPSERT =
+const UPSERT_RECORD =
   "INSERT INTO records (set_id, kind, number, data) VALUES (?, ?, ?, ?) ON CONFLICT (set_id, kind, number) DO UPDATE SET data = excluded.data";
-type Kind = "results" | "practice" | "mastery" | "summary" | "wrong";
+const UPSERT_USER = "INSERT INTO users (number, data) VALUES (?, ?) ON CONFLICT (number) DO UPDATE SET data = excluded.data";
 
 class D1Store implements Store {
   readonly persistent = true;
   readonly kind = "d1";
-  readonly canMigrate: boolean;
   private ready: Promise<void> | null = null;
 
-  // redis があれば、D1 が空のときに Upstash のデータを一度だけ写す
-  constructor(
-    private db: D1Like,
-    private redis: Redis | null,
-  ) {
-    this.canMigrate = !!redis;
-  }
-
-  private lastMigrationTry = 0;
+  constructor(private db: D1Like) {}
 
   private init() {
-    this.ready ??= (async () => {
-      await this.db.batch(D1_SCHEMA.map((s) => this.db.prepare(s)));
-      const row = await this.db.prepare("SELECT COUNT(*) AS n FROM users").first<{ n: number }>();
-      if (row && row.n > 0) return;
-      // D1 が空なら Upstash のデータを移す。失敗しても動作は続け、30秒以上たってからのアクセスでやり直す
-      const retryLater = () => {
-        setTimeout(() => (this.ready = null), 0);
-      };
-      if (Date.now() - this.lastMigrationTry < 30_000) {
-        retryLater();
-        return;
-      }
-      this.lastMigrationTry = Date.now();
-      try {
-        await importDump(await fetchDump(this.redis), this.db);
-      } catch (e) {
-        console.error("データ移行に失敗しました", e);
-        retryLater();
-      }
-    })().catch((e) => {
-      this.ready = null;
-      throw e;
-    });
+    this.ready ??= this.db
+      .batch(D1_SCHEMA.map((s) => this.db.prepare(s)))
+      .then(() => undefined)
+      .catch((e) => {
+        this.ready = null;
+        throw e;
+      });
     return this.ready;
   }
 
@@ -536,70 +477,192 @@ class D1Store implements Store {
       else practice = toNumberRecord(JSON.parse(r.data));
     }
     const next = apply(history, practice, await this.loadMastery(set, number), rec);
-    const put = (kind: Kind, data: unknown) => this.db.prepare(UPSERT).bind(set, kind, number, JSON.stringify(data));
+    const put = (kind: Kind, data: unknown) => this.db.prepare(UPSERT_RECORD).bind(set, kind, number, JSON.stringify(data));
     const statements = [put("mastery", next.state), put("summary", summarize(next.state))];
     if (rec.result) statements.push(put("results", next.history));
     if (rec.practice) statements.push(put("practice", next.practice));
     await this.db.batch(statements);
     return next.outcome;
   }
+
+  async exportData() {
+    await this.init();
+    const users = await this.db.prepare("SELECT number, data FROM users").all<{ number: number; data: string }>();
+    const rows = await this.db
+      .prepare("SELECT set_id, kind, number, data FROM records")
+      .all<{ set_id: SetId; kind: Kind; number: number; data: string }>();
+    const groups = new Map<string, Dump["records"][number]>();
+    for (const r of rows.results) {
+      const k = `${r.set_id}/${r.kind}`;
+      if (!groups.has(k)) groups.set(k, { set: r.set_id, kind: r.kind, data: {} });
+      groups.get(k)!.data[r.number] = JSON.parse(r.data);
+    }
+    return makeDump(Object.fromEntries(users.results.map((u) => [u.number, JSON.parse(u.data) as User])), [...groups.values()]);
+  }
+
+  async importData(dump: Dump) {
+    await this.init();
+    const statements: D1Stmt[] = [];
+    for (const [n, u] of Object.entries(dump.users)) statements.push(this.db.prepare(UPSERT_USER).bind(Number(n), JSON.stringify(u)));
+    for (const r of dump.records) {
+      for (const [n, v] of Object.entries(r.data)) {
+        if (v !== null) statements.push(this.db.prepare(UPSERT_RECORD).bind(r.set, r.kind, Number(n), JSON.stringify(v)));
+      }
+    }
+    for (let i = 0; i < statements.length; i += 50) await this.db.batch(statements.slice(i, i + 50));
+    return countDump(dump);
+  }
+
+  async getAdminSecret() {
+    await this.init();
+    const row = await this.db.prepare("SELECT value FROM settings WHERE key = 'admin'").first<{ value: string }>();
+    return row?.value ?? null;
+  }
+
+  async setAdminSecret(secret: string) {
+    await this.init();
+    const res = await this.db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('admin', ?)").bind(secret).run();
+    return res.meta.changes === 1;
+  }
 }
 
-// Upstash の全データ（番号 → 値）。D1 への移行に使う
-export type Dump = {
-  users: Record<string, unknown>;
-  records: { set: SetId; kind: Kind; data: Record<string, unknown> }[];
+// ---------- ローカル開発用（.data/db.json に保存） ----------
+
+type SetData = Partial<Record<Kind, Record<string, unknown>>>;
+
+type Db = {
+  users: Record<string, User>;
+  sets: Partial<Record<SetId, SetData>>;
+  admin?: string;
+  // 以前の形式（英熟語のみ）
+  results?: Record<string, TestResult[]>;
+  practice?: Record<string, Record<string, number>>;
+  wrong?: Record<string, unknown>;
 };
 
-export async function dumpRedis(redis: Redis): Promise<Dump> {
-  const p = redis.pipeline();
-  p.hgetall(USERS_KEY);
-  const plan: { set: SetId; kind: Kind; key: string }[] = [];
-  for (const set of ["idiom", "word"] as SetId[]) {
-    const k = keysFor(set);
-    plan.push({ set, kind: "results", key: k.results }, { set, kind: "practice", key: k.practice });
-    plan.push({ set, kind: "mastery", key: k.mastery }, { set, kind: "summary", key: k.summary });
-    if (k.legacyWrong) plan.push({ set, kind: "wrong", key: k.legacyWrong });
-  }
-  for (const item of plan) p.hgetall(item.key);
-  const [users, ...hashes] = await p.exec<(Record<string, unknown> | null)[]>();
-  const records = plan.map((item, i) => ({
-    set: item.set,
-    kind: item.kind,
-    data: Object.fromEntries(Object.entries(hashes[i] ?? {}).map(([n, v]) => [n, parse(v, null)])),
-  }));
-  return { users: Object.fromEntries(Object.entries(users ?? {}).map(([n, v]) => [n, parse(v, {})])), records };
+// Vercel・Cloudflare 上ではファイルに書き込めず、サーバーが入れ替わるたびにデータが消える
+function isServerless() {
+  return !!process.env.VERCEL || (typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers");
 }
 
-// 移行用データを D1 に書き込む（D1 に既にある行は上書きしない）
-async function importDump(dump: Dump, db: D1Like) {
-  const statements: D1Stmt[] = [];
-  for (const [n, v] of Object.entries(dump.users)) {
-    statements.push(db.prepare("INSERT OR IGNORE INTO users (number, data) VALUES (?, ?)").bind(Number(n), JSON.stringify(v)));
-  }
-  for (const r of dump.records) {
-    for (const [n, v] of Object.entries(r.data)) {
-      if (v === null) continue;
-      statements.push(
-        db
-          .prepare("INSERT OR IGNORE INTO records (set_id, kind, number, data) VALUES (?, ?, ?, ?)")
-          .bind(r.set, r.kind, Number(n), JSON.stringify(v)),
-      );
+class LocalStore implements Store {
+  readonly persistent = !isServerless();
+  readonly kind = "local";
+  private file = path.join(process.cwd(), ".data", "db.json");
+  private db: Db;
+
+  constructor() {
+    try {
+      this.db = JSON.parse(fs.readFileSync(this.file, "utf8"));
+    } catch {
+      this.db = { users: {}, sets: {} };
+    }
+    this.db.sets ??= {};
+    if (!this.db.sets.idiom && (this.db.results || this.db.wrong)) {
+      this.db.sets.idiom = { results: this.db.results ?? {}, practice: this.db.practice ?? {}, wrong: this.db.wrong ?? {} };
     }
   }
-  for (let i = 0; i < statements.length; i += 50) await db.batch(statements.slice(i, i + 50));
-  console.log(`D1 へ ${statements.length} 行を移しました`);
+
+  private table(set: SetId, kind: Kind): Record<string, unknown> {
+    const d = (this.db.sets[set] ??= {});
+    return (d[kind] ??= {});
+  }
+
+  private save() {
+    try {
+      fs.mkdirSync(path.dirname(this.file), { recursive: true });
+      fs.writeFileSync(this.file, JSON.stringify(this.db, null, 2));
+    } catch {
+      // 書き込めない環境ではメモリ上だけで保持する
+    }
+  }
+
+  private mastery(set: SetId, number: number): MasteryState {
+    const state = toMasteryState(this.table(set, "mastery")[number]);
+    if (state) return state;
+    const legacy = this.table(set, "wrong")[number];
+    return legacy ? fromLegacyWrong(legacy) : { m: {}, a: [] };
+  }
+
+  async getUsers() {
+    return Object.values(this.db.users);
+  }
+
+  async hasUser(number: number) {
+    return !!this.db.users[number];
+  }
+
+  async addUser(user: User) {
+    if (this.db.users[user.number]) return false;
+    this.db.users[user.number] = user;
+    this.save();
+    return true;
+  }
+
+  async getAll(set: SetId) {
+    const results: Record<number, TestResult[]> = {};
+    const practice: Record<number, Record<number, number>> = {};
+    const summary: Record<number, Summary> = {};
+    for (const k of Object.keys(this.db.users)) {
+      const n = Number(k);
+      results[n] = (this.table(set, "results")[k] as TestResult[]) ?? [];
+      practice[n] = toNumberRecord(this.table(set, "practice")[k] as Record<string, unknown>);
+      summary[n] = summarize(this.mastery(set, n));
+    }
+    return { users: Object.values(this.db.users), results, practice, summary };
+  }
+
+  async getReviewIds(number: number, set: SetId) {
+    return Object.entries(this.mastery(set, number).m)
+      .filter(([, [, r]]) => r)
+      .map(([id]) => id);
+  }
+
+  async record(number: number, set: SetId, rec: SaveRequest) {
+    const next = apply(
+      (this.table(set, "results")[number] as TestResult[]) ?? [],
+      toNumberRecord(this.table(set, "practice")[number] as Record<string, unknown>),
+      this.mastery(set, number),
+      rec,
+    );
+    this.table(set, "results")[number] = next.history;
+    this.table(set, "practice")[number] = next.practice;
+    this.table(set, "mastery")[number] = next.state;
+    this.table(set, "summary")[number] = summarize(next.state);
+    this.save();
+    return next.outcome;
+  }
+
+  async exportData() {
+    const records: Dump["records"] = [];
+    for (const [set, d] of Object.entries(this.db.sets) as [SetId, SetData][]) {
+      for (const [kind, data] of Object.entries(d) as [Kind, Record<string, unknown>][]) records.push({ set, kind, data });
+    }
+    return makeDump(this.db.users, records);
+  }
+
+  async importData(dump: Dump) {
+    Object.assign(this.db.users, dump.users);
+    for (const r of dump.records) {
+      for (const [n, v] of Object.entries(r.data)) if (v !== null) this.table(r.set, r.kind)[n] = v;
+    }
+    this.save();
+    return countDump(dump);
+  }
+
+  async getAdminSecret() {
+    return this.db.admin ?? null;
+  }
+
+  async setAdminSecret(secret: string) {
+    if (this.db.admin) return false;
+    this.db.admin = secret;
+    this.save();
+    return true;
+  }
 }
 
-// Upstash の接続情報が Cloudflare に無い場合は、Upstash につながっている Vercel 版から移行用データを受け取る
-const MIGRATION_SOURCE = "https://eijyukugohnd.vercel.app/api/export";
-
-async function fetchDump(redis: Redis | null): Promise<Dump> {
-  if (redis) return dumpRedis(redis);
-  const res = await fetch(MIGRATION_SOURCE, { cache: "no-store" });
-  if (!res.ok) throw new Error(`移行元から取得できませんでした（${res.status}）`);
-  return (await res.json()) as Dump;
-}
+// ---------- 保存先の選択 ----------
 
 // Cloudflare 上なら D1 の接続（wrangler.jsonc の binding "DB"）を取り出す
 function findD1(): D1Like | null {
@@ -613,19 +676,8 @@ function findD1(): D1Like | null {
 
 // Redis の接続先を環境変数から探す。
 // Vercel の Upstash 連携は KV_REST_API_*（接頭辞を付けた場合は 〇〇_KV_REST_API_*）、Upstash 直接なら UPSTASH_REDIS_REST_* が設定される
-// 環境変数（Cloudflare では Worker の変数・シークレットも合わせて見る）
-function allEnv(): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = { ...process.env };
-  try {
-    for (const [k, v] of Object.entries(getCloudflareContext().env as Record<string, unknown>)) {
-      if (typeof v === "string") env[k] ??= v;
-    }
-  } catch {}
-  return env;
-}
-
 function findRedisConfig(): { url: string; token: string } | null {
-  const env = allEnv();
+  const env = process.env;
   const keys = Object.keys(env);
   for (const urlKey of keys.filter((k) => /(^|_)(KV_REST_API_URL|UPSTASH_REDIS_REST_URL)$/.test(k))) {
     const token = env[urlKey.replace(/URL$/, "TOKEN")];
@@ -642,30 +694,20 @@ function findRedisConfig(): { url: string; token: string } | null {
   return null;
 }
 
-export function redisConfig() {
-  return findRedisConfig();
-}
-
-// 保存先が見つからないときの手がかり（Redis 関連の環境変数の「名前」だけ。値は出さない）
-export function redisEnvNames(): string[] {
-  return Object.keys(allEnv()).filter((k) => /REDIS|UPSTASH|(^|_)KV_/.test(k));
-}
-
 let store: Store | undefined;
 
-// 保存先の優先順：Cloudflare D1 → Upstash Redis（Vercel 用）→ ローカルファイル
+// 保存先の優先順：Cloudflare D1 → Upstash Redis（Vercel 版）→ ローカルファイル
 export function getStore(): Store {
   if (store) return store;
-  const config = findRedisConfig();
   const d1 = findD1();
+  const config = d1 ? null : findRedisConfig();
   if (d1) {
-    // Upstash の接続情報も残っていれば、D1 が空のときに一度だけデータを移す
-    store = new D1Store(d1, config ? new Redis(config) : null);
+    store = new D1Store(d1);
   } else if (config) {
     store = new RedisStore(new Redis(config));
   } else {
     if (isServerless()) {
-      console.warn("Redis の環境変数が未設定です。データは保存されません。");
+      console.warn("保存先（D1 または Upstash Redis）が見つかりません。データは保存されません。");
     }
     store = new LocalStore();
   }

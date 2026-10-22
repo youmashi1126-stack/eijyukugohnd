@@ -57,8 +57,16 @@ http://localhost:3000 を開きます。Redis の設定が無い場合は `.data
 
 [OpenNext](https://opennext.js.org/cloudflare) を使って Cloudflare Workers で動かします。
 記録は **Cloudflare D1**（`wrangler.jsonc` の binding `DB`）に保存します。テーブルは初回アクセス時に自動で作られます。
-D1 が空のときに Upstash の接続情報が設定されていれば、Upstash のデータを一度だけ D1 に写します（移行後は Upstash の変数を消して構いません）。
-保存先の優先順は D1 → Upstash Redis → ローカルファイル です。
+保存先の優先順は D1 → Upstash Redis（Vercel 版）→ ローカルファイル です。
+
+## データのバックアップと読み込み（管理者ページ）
+
+`/admin` を開くと、全員の記録をファイル（JSON）にダウンロードしたり、そのファイルを読み込んだりできます。
+
+- 初回に管理者パスワード（8文字以上）を設定する（保存先のデータベースに保存されるので、環境変数は不要）
+- 読み込むと、ファイルにある番号の記録はファイルの内容で上書きされ、ファイルにない番号はそのまま残る
+- Vercel 版でダウンロード → Cloudflare 版で読み込み、のように保存先の移行や定期的なバックアップに使える
+- パスワードを忘れたときは、D1 の Console で `DELETE FROM settings WHERE key = 'admin';` を実行してから設定し直す
 
 1. Cloudflare のダッシュボードで **Workers & Pages → 作成 → Import a repository** から GitHub のリポジトリを選ぶ
 2. ビルド設定
