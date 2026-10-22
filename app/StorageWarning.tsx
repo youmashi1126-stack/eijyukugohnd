@@ -4,7 +4,7 @@ export default function StorageWarning({ persistent }: { persistent: boolean }) 
   return (
     <div className="card storage-warning">
       ⚠️ データの保存先（Upstash Redis）が設定されていません。このままでは記録がしばらくすると消えてしまいます。
-      Vercel の Storage から Upstash Redis をこのプロジェクトに接続し、再デプロイしてください。
+      公開先（Cloudflare または Vercel）の環境変数に Upstash Redis の接続情報（KV_REST_API_URL と KV_REST_API_TOKEN）を設定し、再デプロイしてください。
     </div>
   );
 }

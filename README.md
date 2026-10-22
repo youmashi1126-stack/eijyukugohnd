@@ -53,6 +53,21 @@ npm run dev
 
 http://localhost:3000 を開きます。Redis の設定が無い場合は `.data/db.json` に保存されます。
 
+## Cloudflare へのデプロイ
+
+[OpenNext](https://opennext.js.org/cloudflare) を使って Cloudflare Workers で動かします。データは引き続き Upstash Redis に保存します。
+
+1. Cloudflare のダッシュボードで **Workers & Pages → 作成 → Import a repository** から GitHub のリポジトリを選ぶ
+2. ビルド設定
+   - Build command：`npx opennextjs-cloudflare build`
+   - Deploy command：`npx opennextjs-cloudflare deploy`
+3. **Settings → Variables and Secrets** に、Upstash の接続情報を追加する（Build と Runtime の両方）
+   - `KV_REST_API_URL`（例：`https://xxxx.upstash.io`）
+   - `KV_REST_API_TOKEN`（種類は Secret）
+4. 再デプロイすると `https://eijyukugohnd.<アカウント名>.workers.dev` で公開される
+
+手元で Cloudflare の環境を試すときは `npm run preview`（Redis を使う場合は `.dev.vars` に上の2つを書く）。
+
 ## Vercel へのデプロイ
 
 Vercel はファイルを保存できないため、成績データの保存に **Upstash Redis**（無料枠あり）を使います。

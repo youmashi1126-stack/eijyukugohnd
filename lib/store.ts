@@ -304,9 +304,13 @@ type Db = {
   wrong?: Record<string, unknown>;
 };
 
+// Vercel・Cloudflare 上ではファイルに書き込めず、サーバーが入れ替わるたびにデータが消える
+function isServerless() {
+  return !!process.env.VERCEL || (typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers");
+}
+
 class LocalStore implements Store {
-  // Vercel 上ではファイルに書き込めず、サーバーが入れ替わるたびにデータが消える
-  readonly persistent = !process.env.VERCEL;
+  readonly persistent = !isServerless();
   private file = path.join(process.cwd(), ".data", "db.json");
   private db: Db;
 
@@ -419,7 +423,7 @@ export function getStore(): Store {
   if (config) {
     store = new RedisStore(new Redis(config));
   } else {
-    if (process.env.VERCEL) {
+    if (isServerless()) {
       console.warn("Redis の環境変数が未設定です。データは保存されません。");
     }
     store = new LocalStore();

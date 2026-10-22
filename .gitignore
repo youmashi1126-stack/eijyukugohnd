@@ -5,3 +5,7 @@ out/
 .env*.local
 .vercel
 *.tsbuildinfo
+# Cloudflare（OpenNext のビルド結果・ローカル設定）
+.open-next/
+.wrangler/
+.dev.vars

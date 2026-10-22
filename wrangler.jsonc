@@ -1,0 +1,21 @@
+// Cloudflare Workers の設定（OpenNext でビルドした Next.js アプリを動かす）
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "eijyukugohnd",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-12-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "eijyukugohnd"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
