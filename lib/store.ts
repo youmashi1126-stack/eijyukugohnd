@@ -433,12 +433,27 @@ class D1Store implements Store {
     this.canMigrate = !!redis;
   }
 
+  private lastMigrationTry = 0;
+
   private init() {
     this.ready ??= (async () => {
       await this.db.batch(D1_SCHEMA.map((s) => this.db.prepare(s)));
-      if (this.redis) {
-        const row = await this.db.prepare("SELECT COUNT(*) AS n FROM users").first<{ n: number }>();
-        if (!row || row.n === 0) await copyRedisToD1(this.redis, this.db);
+      const row = await this.db.prepare("SELECT COUNT(*) AS n FROM users").first<{ n: number }>();
+      if (row && row.n > 0) return;
+      // D1 が空なら Upstash のデータを移す。失敗しても動作は続け、30秒以上たってからのアクセスでやり直す
+      const retryLater = () => {
+        setTimeout(() => (this.ready = null), 0);
+      };
+      if (Date.now() - this.lastMigrationTry < 30_000) {
+        retryLater();
+        return;
+      }
+      this.lastMigrationTry = Date.now();
+      try {
+        await importDump(await fetchDump(this.redis), this.db);
+      } catch (e) {
+        console.error("データ移行に失敗しました", e);
+        retryLater();
       }
     })().catch((e) => {
       this.ready = null;
@@ -530,8 +545,13 @@ class D1Store implements Store {
   }
 }
 
-// Upstash のデータを D1 に写す（D1 に既にある行は上書きしない）
-async function copyRedisToD1(redis: Redis, db: D1Like) {
+// Upstash の全データ（番号 → 値）。D1 への移行に使う
+export type Dump = {
+  users: Record<string, unknown>;
+  records: { set: SetId; kind: Kind; data: Record<string, unknown> }[];
+};
+
+export async function dumpRedis(redis: Redis): Promise<Dump> {
   const p = redis.pipeline();
   p.hgetall(USERS_KEY);
   const plan: { set: SetId; kind: Kind; key: string }[] = [];
@@ -543,22 +563,42 @@ async function copyRedisToD1(redis: Redis, db: D1Like) {
   }
   for (const item of plan) p.hgetall(item.key);
   const [users, ...hashes] = await p.exec<(Record<string, unknown> | null)[]>();
+  const records = plan.map((item, i) => ({
+    set: item.set,
+    kind: item.kind,
+    data: Object.fromEntries(Object.entries(hashes[i] ?? {}).map(([n, v]) => [n, parse(v, null)])),
+  }));
+  return { users: Object.fromEntries(Object.entries(users ?? {}).map(([n, v]) => [n, parse(v, {})])), records };
+}
 
+// 移行用データを D1 に書き込む（D1 に既にある行は上書きしない）
+async function importDump(dump: Dump, db: D1Like) {
   const statements: D1Stmt[] = [];
-  for (const [n, v] of Object.entries(users ?? {})) {
-    statements.push(db.prepare("INSERT OR IGNORE INTO users (number, data) VALUES (?, ?)").bind(Number(n), JSON.stringify(parse(v, {}))));
+  for (const [n, v] of Object.entries(dump.users)) {
+    statements.push(db.prepare("INSERT OR IGNORE INTO users (number, data) VALUES (?, ?)").bind(Number(n), JSON.stringify(v)));
   }
-  plan.forEach((item, i) => {
-    for (const [n, v] of Object.entries(hashes[i] ?? {})) {
+  for (const r of dump.records) {
+    for (const [n, v] of Object.entries(r.data)) {
+      if (v === null) continue;
       statements.push(
         db
           .prepare("INSERT OR IGNORE INTO records (set_id, kind, number, data) VALUES (?, ?, ?, ?)")
-          .bind(item.set, item.kind, Number(n), JSON.stringify(parse(v, null))),
+          .bind(r.set, r.kind, Number(n), JSON.stringify(v)),
       );
     }
-  });
+  }
   for (let i = 0; i < statements.length; i += 50) await db.batch(statements.slice(i, i + 50));
-  console.log(`Upstash から D1 へ ${statements.length} 行を移しました`);
+  console.log(`D1 へ ${statements.length} 行を移しました`);
+}
+
+// Upstash の接続情報が Cloudflare に無い場合は、Upstash につながっている Vercel 版から移行用データを受け取る
+const MIGRATION_SOURCE = "https://eijyukugohnd.vercel.app/api/export";
+
+async function fetchDump(redis: Redis | null): Promise<Dump> {
+  if (redis) return dumpRedis(redis);
+  const res = await fetch(MIGRATION_SOURCE, { cache: "no-store" });
+  if (!res.ok) throw new Error(`移行元から取得できませんでした（${res.status}）`);
+  return (await res.json()) as Dump;
 }
 
 // Cloudflare 上なら D1 の接続（wrangler.jsonc の binding "DB"）を取り出す
@@ -600,6 +640,10 @@ function findRedisConfig(): { url: string; token: string } | null {
     } catch {}
   }
   return null;
+}
+
+export function redisConfig() {
+  return findRedisConfig();
 }
 
 // 保存先が見つからないときの手がかり（Redis 関連の環境変数の「名前」だけ。値は出さない）
