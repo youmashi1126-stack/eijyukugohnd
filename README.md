@@ -55,7 +55,10 @@ http://localhost:3000 を開きます。Redis の設定が無い場合は `.data
 
 ## Cloudflare へのデプロイ
 
-[OpenNext](https://opennext.js.org/cloudflare) を使って Cloudflare Workers で動かします。データは引き続き Upstash Redis に保存します。
+[OpenNext](https://opennext.js.org/cloudflare) を使って Cloudflare Workers で動かします。
+記録は **Cloudflare D1**（`wrangler.jsonc` の binding `DB`）に保存します。テーブルは初回アクセス時に自動で作られます。
+D1 が空のときに Upstash の接続情報が設定されていれば、Upstash のデータを一度だけ D1 に写します（移行後は Upstash の変数を消して構いません）。
+保存先の優先順は D1 → Upstash Redis → ローカルファイル です。
 
 1. Cloudflare のダッシュボードで **Workers & Pages → 作成 → Import a repository** から GitHub のリポジトリを選ぶ
 2. ビルド設定

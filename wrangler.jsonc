@@ -9,6 +9,14 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
+  // 記録の保存先（Cloudflare D1）。database_id は Cloudflare で作ったデータベースの ID
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "eijyukugohnd",
+      "database_id": "a9d484a1-77f7-4d6c-b11a-262ff35aff27"
+    }
+  ],
   "services": [
     {
       "binding": "WORKER_SELF_REFERENCE",

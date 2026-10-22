@@ -1,3 +1,4 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { Redis } from "@upstash/redis";
 import fs from "node:fs";
 import path from "node:path";
@@ -390,6 +391,177 @@ class LocalStore implements Store {
   }
 }
 
+// ---------- Cloudflare D1（Cloudflare 本番） ----------
+// Redis と同じく「種類 × 番号」ごとに JSON を1行で持つ。テーブルは初回アクセス時に自動で作る
+
+type D1Result<T> = { results: T[]; meta: { changes: number } };
+interface D1Stmt {
+  bind(...values: unknown[]): D1Stmt;
+  first<T>(): Promise<T | null>;
+  all<T>(): Promise<D1Result<T>>;
+  run(): Promise<D1Result<unknown>>;
+}
+interface D1Like {
+  prepare(sql: string): D1Stmt;
+  batch(statements: D1Stmt[]): Promise<D1Result<unknown>[]>;
+}
+
+const D1_SCHEMA = [
+  "CREATE TABLE IF NOT EXISTS users (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS records (set_id TEXT NOT NULL, kind TEXT NOT NULL, number INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (set_id, kind, number))",
+];
+const UPSERT =
+  "INSERT INTO records (set_id, kind, number, data) VALUES (?, ?, ?, ?) ON CONFLICT (set_id, kind, number) DO UPDATE SET data = excluded.data";
+type Kind = "results" | "practice" | "mastery" | "summary" | "wrong";
+
+class D1Store implements Store {
+  readonly persistent = true;
+  private ready: Promise<void> | null = null;
+
+  // redis があれば、D1 が空のときに Upstash のデータを一度だけ写す
+  constructor(
+    private db: D1Like,
+    private redis: Redis | null,
+  ) {}
+
+  private init() {
+    this.ready ??= (async () => {
+      await this.db.batch(D1_SCHEMA.map((s) => this.db.prepare(s)));
+      if (this.redis) {
+        const row = await this.db.prepare("SELECT COUNT(*) AS n FROM users").first<{ n: number }>();
+        if (!row || row.n === 0) await copyRedisToD1(this.redis, this.db);
+      }
+    })().catch((e) => {
+      this.ready = null;
+      throw e;
+    });
+    return this.ready;
+  }
+
+  private async rows(set: SetId, kinds: Kind[], number?: number) {
+    const marks = kinds.map(() => "?").join(", ");
+    const sql = `SELECT kind, number, data FROM records WHERE set_id = ? AND kind IN (${marks})${number === undefined ? "" : " AND number = ?"}`;
+    const args: unknown[] = [set, ...kinds, ...(number === undefined ? [] : [number])];
+    const { results } = await this.db
+      .prepare(sql)
+      .bind(...args)
+      .all<{ kind: Kind; number: number; data: string }>();
+    return results;
+  }
+
+  async getUsers() {
+    await this.init();
+    const { results } = await this.db.prepare("SELECT data FROM users").all<{ data: string }>();
+    return results.map((r) => JSON.parse(r.data) as User);
+  }
+
+  async hasUser(number: number) {
+    await this.init();
+    return !!(await this.db.prepare("SELECT 1 AS ok FROM users WHERE number = ?").bind(number).first());
+  }
+
+  async addUser(user: User) {
+    await this.init();
+    const res = await this.db
+      .prepare("INSERT OR IGNORE INTO users (number, data) VALUES (?, ?)")
+      .bind(user.number, JSON.stringify(user))
+      .run();
+    return res.meta.changes === 1;
+  }
+
+  async getAll(set: SetId) {
+    const users = await this.getUsers();
+    const out: AllData = { users, results: {}, practice: {}, summary: {} };
+    const legacy: Record<number, unknown> = {};
+    for (const r of await this.rows(set, ["results", "practice", "summary", "wrong"])) {
+      const v = JSON.parse(r.data);
+      if (r.kind === "results") out.results[r.number] = v;
+      else if (r.kind === "practice") out.practice[r.number] = toNumberRecord(v);
+      else if (r.kind === "summary") out.summary[r.number] = v;
+      else legacy[r.number] = v;
+    }
+    // 習熟データがまだない人は、以前の復習リストの数を復習数として使う
+    for (const [n, v] of Object.entries(legacy)) out.summary[Number(n)] ??= summarize(fromLegacyWrong(v));
+    return out;
+  }
+
+  private async loadMastery(set: SetId, number: number) {
+    let state: MasteryState | null = null;
+    let legacy: unknown = null;
+    for (const r of await this.rows(set, ["mastery", "wrong"], number)) {
+      if (r.kind === "mastery") state = toMasteryState(JSON.parse(r.data));
+      else legacy = JSON.parse(r.data);
+    }
+    return state ?? (legacy ? fromLegacyWrong(legacy) : { m: {}, a: [] });
+  }
+
+  async getReviewIds(number: number, set: SetId) {
+    await this.init();
+    const state = await this.loadMastery(set, number);
+    return Object.entries(state.m)
+      .filter(([, [, r]]) => r)
+      .map(([id]) => id);
+  }
+
+  async record(number: number, set: SetId, rec: SaveRequest) {
+    await this.init();
+    let history: TestResult[] = [];
+    let practice: Record<number, number> = {};
+    for (const r of await this.rows(set, ["results", "practice"], number)) {
+      if (r.kind === "results") history = JSON.parse(r.data);
+      else practice = toNumberRecord(JSON.parse(r.data));
+    }
+    const next = apply(history, practice, await this.loadMastery(set, number), rec);
+    const put = (kind: Kind, data: unknown) => this.db.prepare(UPSERT).bind(set, kind, number, JSON.stringify(data));
+    const statements = [put("mastery", next.state), put("summary", summarize(next.state))];
+    if (rec.result) statements.push(put("results", next.history));
+    if (rec.practice) statements.push(put("practice", next.practice));
+    await this.db.batch(statements);
+    return next.outcome;
+  }
+}
+
+// Upstash のデータを D1 に写す（D1 に既にある行は上書きしない）
+async function copyRedisToD1(redis: Redis, db: D1Like) {
+  const p = redis.pipeline();
+  p.hgetall(USERS_KEY);
+  const plan: { set: SetId; kind: Kind; key: string }[] = [];
+  for (const set of ["idiom", "word"] as SetId[]) {
+    const k = keysFor(set);
+    plan.push({ set, kind: "results", key: k.results }, { set, kind: "practice", key: k.practice });
+    plan.push({ set, kind: "mastery", key: k.mastery }, { set, kind: "summary", key: k.summary });
+    if (k.legacyWrong) plan.push({ set, kind: "wrong", key: k.legacyWrong });
+  }
+  for (const item of plan) p.hgetall(item.key);
+  const [users, ...hashes] = await p.exec<(Record<string, unknown> | null)[]>();
+
+  const statements: D1Stmt[] = [];
+  for (const [n, v] of Object.entries(users ?? {})) {
+    statements.push(db.prepare("INSERT OR IGNORE INTO users (number, data) VALUES (?, ?)").bind(Number(n), JSON.stringify(parse(v, {}))));
+  }
+  plan.forEach((item, i) => {
+    for (const [n, v] of Object.entries(hashes[i] ?? {})) {
+      statements.push(
+        db
+          .prepare("INSERT OR IGNORE INTO records (set_id, kind, number, data) VALUES (?, ?, ?, ?)")
+          .bind(item.set, item.kind, Number(n), JSON.stringify(parse(v, null))),
+      );
+    }
+  });
+  for (let i = 0; i < statements.length; i += 50) await db.batch(statements.slice(i, i + 50));
+  console.log(`Upstash から D1 へ ${statements.length} 行を移しました`);
+}
+
+// Cloudflare 上なら D1 の接続（wrangler.jsonc の binding "DB"）を取り出す
+function findD1(): D1Like | null {
+  try {
+    const { env } = getCloudflareContext();
+    return ((env as Record<string, unknown>).DB as D1Like | undefined) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Redis の接続先を環境変数から探す。
 // Vercel の Upstash 連携は KV_REST_API_*（接頭辞を付けた場合は 〇〇_KV_REST_API_*）、Upstash 直接なら UPSTASH_REDIS_REST_* が設定される
 function findRedisConfig(): { url: string; token: string } | null {
@@ -417,10 +589,15 @@ export function redisEnvNames(): string[] {
 
 let store: Store | undefined;
 
+// 保存先の優先順：Cloudflare D1 → Upstash Redis（Vercel 用）→ ローカルファイル
 export function getStore(): Store {
   if (store) return store;
   const config = findRedisConfig();
-  if (config) {
+  const d1 = findD1();
+  if (d1) {
+    // Upstash の接続情報も残っていれば、D1 が空のときに一度だけデータを移す
+    store = new D1Store(d1, config ? new Redis(config) : null);
+  } else if (config) {
     store = new RedisStore(new Redis(config));
   } else {
     if (isServerless()) {
