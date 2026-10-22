@@ -3,20 +3,100 @@
 import { Fragment, useEffect, useState } from "react";
 import { formatDate, formatDuration, loadMyNumber } from "@/lib/me";
 import { titleFor } from "@/lib/titles";
+import { SETS, type SetId } from "@/lib/sets";
 import {
   comparePractice,
+  jstDate,
   markFor,
   PASS_SCORE,
   practiceSummary,
-  SECTION_COUNT,
   PRACTICE_QUESTION_COUNT,
   type Player,
 } from "@/lib/types";
+import { useSet } from "../SetContext";
 
-const SECTIONS = Array.from({ length: SECTION_COUNT }, (_, i) => i + 1);
+// その日の最高点ランキング：選んだ日（日本時間）の本番テストで、1人ずつ最高点を並べる
+function DailyRanking({ players, myNumber, set }: { players: Player[]; myNumber: number | null; set: SetId }) {
+  const today = jstDate();
+  const [date, setDate] = useState(today);
 
-// 練習モードのランキング：クリア数 → ◎の数 → 合計点。20セクションの進み具合をマスで表示
-function PracticeRanking({ players, myNumber }: { players: Player[]; myNumber: number | null }) {
+  const rows = players
+    .map((p) => {
+      const day = p.history.filter((r) => jstDate(r.at) === date);
+      return { p, best: day.length ? Math.max(...day.map((r) => r.score)) : null, count: day.length };
+    })
+    .filter((r): r is { p: Player; best: number; count: number } => r.best !== null)
+    .sort((a, b) => b.best - a.best || b.count - a.count || a.p.number - b.p.number);
+
+  // 同点は同順位
+  const ranks: number[] = [];
+  rows.forEach((r, i) => ranks.push(i > 0 && rows[i - 1].best === r.best ? ranks[i - 1] : i + 1));
+  const [y, m, d] = date.split("-");
+
+  return (
+    <>
+      <div className="card hero">
+        <h1>📅 {date === today ? "本日" : `${Number(m)}月${Number(d)}日`}の最高点ランキング</h1>
+        <p className="muted" style={{ margin: 0 }}>
+          {SETS[set].label}モードの「テストに挑戦」で、その日に取った一番高い点数で競います。（{y}-{m}-{d}）
+        </p>
+      </div>
+      <div className="card">
+        <div className="date-row">
+          <label htmlFor="rank-date" style={{ fontWeight: 800 }}>
+            🗓️ 日付を選ぶ
+          </label>
+          <input id="rank-date" type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)} />
+          {date !== today && (
+            <button className="btn" style={{ padding: "6px 14px" }} onClick={() => setDate(today)}>
+              今日に戻る
+            </button>
+          )}
+        </div>
+        {rows.length === 0 ? (
+          <p className="muted center">この日はまだ誰もテストを受けていません。</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="ranking">
+              <thead>
+                <tr>
+                  <th>順位</th>
+                  <th>番号</th>
+                  <th style={{ textAlign: "left" }}>ニックネーム</th>
+                  <th>最高点</th>
+                  <th>この日の回数</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={r.p.number} className={r.p.number === myNumber ? "me" : ""}>
+                    <td>
+                      <span className="rank-badge">{rankLabel(ranks[i])}</span>
+                    </td>
+                    <td>{r.p.number}</td>
+                    <td className="name">
+                      {r.p.nickname}
+                      {r.p.number === myNumber && <span className="muted">（あなた）</span>}
+                    </td>
+                    <td>
+                      <b>{r.best}</b>
+                    </td>
+                    <td>{r.count}回</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// 練習モードのランキング：クリア数 → ◎の数 → 合計点。全セクションの進み具合をマスで表示
+function PracticeRanking({ players, myNumber, set }: { players: Player[]; myNumber: number | null; set: SetId }) {
+  const SECTION_COUNT = SETS[set].sections;
+  const SECTIONS = Array.from({ length: SECTION_COUNT }, (_, i) => i + 1);
   const sorted = [...players].sort(comparePractice);
   const active = sorted.filter((p) => practiceSummary(p.practice).tried > 0);
   const totalCleared = players.reduce((s, p) => s + practiceSummary(p.practice).cleared, 0);
@@ -31,7 +111,7 @@ function PracticeRanking({ players, myNumber }: { players: Player[]; myNumber: n
   return (
     <>
       <div className="card hero practice-hero">
-        <h1>🏁 練習モード ランキング</h1>
+        <h1>🏁 {SETS[set].label} 練習モード ランキング</h1>
         <p className="muted" style={{ margin: 0 }}>
           クリア（{PASS_SCORE}点以上の ○）の数で競争！同じなら ◎ の数、合計点で順位が決まります。
         </p>
@@ -99,9 +179,11 @@ function PracticeRanking({ players, myNumber }: { players: Player[]; myNumber: n
                       </span>
                     );
                   })}
-                  <span className="runner" style={{ left: `calc(${(sum.cleared / SECTION_COUNT) * 100}% - 12px)` }}>
-                    🏃
-                  </span>
+                  {SECTION_COUNT <= 20 && (
+                    <span className="runner" style={{ left: `calc(${(sum.cleared / SECTION_COUNT) * 100}% - 12px)` }}>
+                      🏃
+                    </span>
+                  )}
                 </div>
               </div>
             );
@@ -137,41 +219,68 @@ function rankLabel(rank: number | null) {
 }
 
 export default function RankingPage() {
+  const { set, ready, changeSet } = useSet();
   const [players, setPlayers] = useState<Player[] | null>(null);
   const [error, setError] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("average");
   const [open, setOpen] = useState<number | null>(null);
   const [myNumber, setMyNumber] = useState<number | null>(null);
-  const [tab, setTab] = useState<"test" | "practice">("test");
+  const [tab, setTab] = useState<"test" | "daily" | "practice">("test");
 
   useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "practice" || t === "daily") setTab(t);
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
     setMyNumber(loadMyNumber());
-    if (new URLSearchParams(window.location.search).get("tab") === "practice") setTab("practice");
-    fetch("/api/players", { cache: "no-store" })
+    setPlayers(null);
+    fetch(`/api/players?set=${set}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => setPlayers(d.players))
       .catch(() => setError("データを読み込めませんでした。再読み込みしてください。"));
-  }, []);
+  }, [set, ready]);
 
   if (error) return <p className="error">{error}</p>;
   if (!players) return <p className="muted center">読み込み中…</p>;
 
   const tabs = (
-    <div className="big-tabs">
-      <button className={tab === "test" ? "active" : ""} onClick={() => setTab("test")}>
-        🚀 テスト
-      </button>
-      <button className={tab === "practice" ? "active practice" : ""} onClick={() => setTab("practice")}>
-        📚 練習モード
-      </button>
-    </div>
+    <>
+      <div className="sort-tabs" style={{ justifyContent: "center" }}>
+        {(["word", "idiom"] as SetId[]).map((s) => (
+          <button key={s} className={set === s ? "active" : ""} onClick={() => changeSet(s)}>
+            {SETS[s].icon} {SETS[s].label}
+          </button>
+        ))}
+      </div>
+      <div className="big-tabs three">
+        <button className={tab === "test" ? "active" : ""} onClick={() => setTab("test")}>
+          🚀 平均点
+        </button>
+        <button className={tab === "daily" ? "active daily" : ""} onClick={() => setTab("daily")}>
+          📅 日別最高点
+        </button>
+        <button className={tab === "practice" ? "active practice" : ""} onClick={() => setTab("practice")}>
+          📚 練習
+        </button>
+      </div>
+    </>
   );
 
   if (tab === "practice") {
     return (
       <>
         {tabs}
-        <PracticeRanking players={players} myNumber={myNumber} />
+        <PracticeRanking players={players} myNumber={myNumber} set={set} />
+      </>
+    );
+  }
+  if (tab === "daily") {
+    return (
+      <>
+        {tabs}
+        <DailyRanking players={players} myNumber={myNumber} set={set} />
       </>
     );
   }
@@ -190,7 +299,7 @@ export default function RankingPage() {
     <>
       {tabs}
       <div className="card hero">
-        <h1>🏆 テストランキング</h1>
+        <h1>🏆 {SETS[set].label} テストランキング</h1>
         <p className="muted" style={{ margin: 0 }}>
           全参加者の受験回数と平均点。行をタップすると、その人の全結果が見られます。
         </p>

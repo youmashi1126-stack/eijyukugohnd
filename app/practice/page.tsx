@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { loadMyNumber } from "@/lib/me";
+import { SETS } from "@/lib/sets";
 import {
   comparePractice,
   markFor,
@@ -11,35 +12,43 @@ import {
   PRACTICE_QUESTION_COUNT,
   PRACTICE_SEC_PER_QUESTION,
   practiceSummary,
-  SECTION_COUNT,
   SECTION_SIZE,
-  sectionRange,
   type Player,
 } from "@/lib/types";
+import { useSet } from "../SetContext";
 
-const SECTIONS = Array.from({ length: SECTION_COUNT }, (_, i) => i + 1);
+type SectionInfo = { from: string; to: string; size: number };
 
 export default function PracticeHome() {
   const router = useRouter();
+  const { set, ready } = useSet();
   const [players, setPlayers] = useState<Player[] | null>(null);
+  const [sections, setSections] = useState<SectionInfo[] | null>(null);
   const [myNumber, setMyNumber] = useState<number | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!ready) return;
     const n = loadMyNumber();
     if (n === null) {
       router.replace("/");
       return;
     }
     setMyNumber(n);
-    fetch("/api/players", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => setPlayers(d.players))
+    setPlayers(null);
+    Promise.all([
+      fetch(`/api/players?set=${set}`, { cache: "no-store" }).then((r) => r.json()),
+      fetch(`/api/practice?set=${set}`).then((r) => r.json()),
+    ])
+      .then(([p, s]) => {
+        setPlayers(p.players);
+        setSections(s.sections);
+      })
       .catch(() => setError("データを読み込めませんでした。再読み込みしてください。"));
-  }, [router]);
+  }, [router, set, ready]);
 
   if (error) return <p className="error">{error}</p>;
-  if (!players || myNumber === null) return <p className="muted center">読み込み中…</p>;
+  if (!players || !sections || myNumber === null) return <p className="muted center">読み込み中…</p>;
 
   const me = players.find((p) => p.number === myNumber);
   if (!me) {
@@ -49,27 +58,32 @@ export default function PracticeHome() {
       </p>
     );
   }
+  const info = SETS[set];
+  const count = sections.length;
   const sum = practiceSummary(me.practice);
   // 練習ランキングでの自分の順位（クリア数 → ◎の数 → 合計点）
   const ranked = [...players].sort(comparePractice);
   const myRank = ranked.findIndex((p) => p.number === me.number) + 1;
   // 次に挑戦するとよいセクション（まだ○が付いていない最初のもの）
-  const nextSection = SECTIONS.find((s) => markFor(me.practice[s]) === "");
+  const nextSection = sections.findIndex((_, i) => markFor(me.practice[i + 1]) === "") + 1;
 
   return (
     <>
       <div className="card hero practice-hero">
         <span className="hero-number">No.{me.number}</span>
-        <h1 style={{ marginTop: 8 }}>📚 練習モード</h1>
+        <h1 style={{ marginTop: 8 }}>
+          📚 {info.label} 練習モード
+        </h1>
         <p className="muted" style={{ margin: 0 }}>
-          英熟語1000を番号順に{SECTION_SIZE}問ずつ{SECTION_COUNT}セクション。単語一覧で覚えてから、ランダム
+          {info.label}
+          {info.total.toLocaleString()}問を番号順に{SECTION_SIZE}問ずつ{count}セクション。単語一覧で覚えてから、ランダム
           {PRACTICE_QUESTION_COUNT}問・1問{PRACTICE_SEC_PER_QUESTION}秒のテストで{PASS_SCORE}点以上なら ○、満点なら ◎！
         </p>
         <div className="stats">
           <div className="stat">
             <div className="stat-label">クリア（○以上）</div>
             <div className="stat-value">
-              {sum.cleared}/{SECTION_COUNT}
+              {sum.cleared}/{count}
             </div>
           </div>
           <div className="stat">
@@ -86,11 +100,11 @@ export default function PracticeHome() {
           </div>
         </div>
         <div className="big-progress">
-          <div style={{ width: `${(sum.cleared / SECTION_COUNT) * 100}%` }} />
-          <span>{Math.round((sum.cleared / SECTION_COUNT) * 100)}% 完成</span>
+          <div style={{ width: `${(sum.cleared / count) * 100}%` }} />
+          <span>{Math.round((sum.cleared / count) * 100)}% 完成</span>
         </div>
         <div className="btn-row">
-          {nextSection && (
+          {nextSection > 0 && (
             <Link href={`/practice/${nextSection}`} className="btn btn-large" style={{ color: "var(--primary)" }}>
               ▶ 次はセクション{nextSection}
             </Link>
@@ -120,17 +134,17 @@ export default function PracticeHome() {
           </span>
         </div>
         <div className="section-grid">
-          {SECTIONS.map((s) => {
+          {sections.map((sec, i) => {
+            const s = i + 1;
             const best = me.practice[s];
             const mark = markFor(best);
             const state = mark === "◎" ? "perfect" : mark === "○" ? "pass" : best !== undefined ? "tried" : "";
-            const [from, to] = sectionRange(s);
             return (
               <Link key={s} href={`/practice/${s}`} className={`section-tile ${state}`}>
                 <div className="sec-no">S{s}</div>
                 <div className="sec-mark">{mark || (best !== undefined ? "…" : "")}</div>
                 <div className="sec-range">
-                  No.{from}〜{to}
+                  No.{sec.from}〜{sec.to}
                 </div>
                 <div className="sec-best">{best !== undefined ? `ベスト ${best}/${PRACTICE_QUESTION_COUNT}` : "未挑戦"}</div>
               </Link>

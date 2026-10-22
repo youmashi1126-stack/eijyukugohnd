@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { clearMyNumber, formatDate, loadMyNumber, saveMyNumber } from "@/lib/me";
+import { SETS, type SetId } from "@/lib/sets";
 import { titleFor } from "@/lib/titles";
+import { MASTERY_GOAL, MASTERY_POINTS, MAX_NUMBER, MIN_NUMBER, practiceSummary, type Player } from "@/lib/types";
+import { SetSwitch, useSet } from "./SetContext";
 import StorageWarning from "./StorageWarning";
-import { MAX_NUMBER, MIN_NUMBER, practiceSummary, SECTION_COUNT, type Player } from "@/lib/types";
 
 const NUMBERS = Array.from({ length: MAX_NUMBER - MIN_NUMBER + 1 }, (_, i) => i + MIN_NUMBER);
 
@@ -17,14 +19,15 @@ function greeting() {
 }
 
 export default function Home() {
+  const { set, ready } = useSet();
   const [players, setPlayers] = useState<Player[] | null>(null);
   const [myNumber, setMyNumber] = useState<number | null>(null);
   const [loadError, setLoadError] = useState("");
   const [persistent, setPersistent] = useState(true);
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/players", { cache: "no-store" });
+      const res = await fetch(`/api/players?set=${set}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !Array.isArray(data.players)) throw new Error("load failed");
       const list: Player[] = data.players;
@@ -35,11 +38,11 @@ export default function Home() {
     } catch {
       setLoadError("データを読み込めませんでした。再読み込みしてください。");
     }
-  }
+  }, [set]);
 
   useEffect(() => {
-    load();
-  }, []);
+    if (ready) load();
+  }, [ready, load]);
 
   if (loadError) return <p className="error">{loadError}</p>;
   if (!players) return <p className="muted center">読み込み中…</p>;
@@ -49,8 +52,11 @@ export default function Home() {
     return (
       <>
         <StorageWarning persistent={persistent} />
+        <SetSwitch />
         <Welcome
+          key={set}
           me={me}
+          set={set}
           total={players.filter((p) => p.count > 0).length}
           onSwitch={() => {
             clearMyNumber();
@@ -76,9 +82,11 @@ export default function Home() {
   );
 }
 
-function Welcome({ me, total, onSwitch }: { me: Player; total: number; onSwitch: () => void }) {
+function Welcome({ me, set, total, onSwitch }: { me: Player; set: SetId; total: number; onSwitch: () => void }) {
   const title = titleFor(me.average);
   const recent = me.history.slice(-10);
+  const info = SETS[set];
+  const percent = Math.round((me.mastered / info.total) * 1000) / 10;
 
   return (
     <>
@@ -91,7 +99,8 @@ function Welcome({ me, total, onSwitch }: { me: Player; total: number; onSwitch:
           {greeting()}、{me.nickname}！
         </h1>
         <p className="muted" style={{ margin: 0 }}>
-          ターゲット英熟語1000からランダム100問。今日も1回チャレンジしよう💪
+          {set === "word" ? "システム英単語" : "ターゲット英熟語"}
+          {info.total.toLocaleString()}問からランダム100問。今日も1回チャレンジしよう💪
         </p>
         <div className="stats">
           <div className="stat">
@@ -113,6 +122,24 @@ function Welcome({ me, total, onSwitch }: { me: Player; total: number; onSwitch:
         </div>
       </div>
 
+      <div className="card mastery-card">
+        <h2 style={{ marginBottom: 4 }}>🎓 {info.label}の習得状況</h2>
+        <div className="mastery-top">
+          <span className="mastery-percent">{percent}%</span>
+          <span className="mastery-count">
+            覚えた <b>{me.mastered.toLocaleString()}</b> / {info.total.toLocaleString()}
+            {info.unit}
+          </span>
+        </div>
+        <div className="mastery-bar">
+          <div style={{ width: `${Math.min(100, (me.mastered / info.total) * 100)}%` }} />
+        </div>
+        <div className="mastery-rule">
+          習熟ポイント{MASTERY_GOAL}点で「覚えた」：テスト正解 +{MASTERY_POINTS.test}点／練習 +{MASTERY_POINTS.practice}点／復習 +
+          {MASTERY_POINTS.review}点。間違えると0点に戻ります
+        </div>
+      </div>
+
       <div className="menu">
         <Link href="/test" className="menu-card menu-test">
           <div className="menu-icon">🚀</div>
@@ -123,14 +150,18 @@ function Welcome({ me, total, onSwitch }: { me: Player; total: number; onSwitch:
           <div className="menu-icon">📚</div>
           <div className="menu-title">練習モード</div>
           <div className="menu-sub">
-            20セクション クリア {practiceSummary(me.practice).cleared}/{SECTION_COUNT}・◎{practiceSummary(me.practice).perfect}
+            {info.sections}セクション クリア {practiceSummary(me.practice).cleared}/{info.sections}・◎
+            {practiceSummary(me.practice).perfect}
           </div>
         </Link>
-        {me.wrongCount > 0 ? (
+        {me.reviewCount > 0 ? (
           <Link href="/test?mode=review" className="menu-card menu-review">
             <div className="menu-icon">🔁</div>
             <div className="menu-title">復習コーナー</div>
-            <div className="menu-sub">間違えた問題 あと {me.wrongCount}問</div>
+            <div className="menu-sub">
+              復習すべき{info.unit} あと {me.reviewCount}
+              {set === "word" ? "語" : "問"}
+            </div>
           </Link>
         ) : (
           <div className="menu-card menu-review empty">
@@ -205,9 +236,9 @@ function Register({ players, onDone }: { players: Player[]; onDone: (n: number) 
   return (
     <>
       <div className="card hero">
-        <h1>⚡ 英熟語チャレンジへようこそ！</h1>
+        <h1>⚡ 英語チャレンジへようこそ！</h1>
         <p className="muted" style={{ margin: 0 }}>
-          ターゲット英熟語1000からランダム100問の3択テスト。発音つきで、間違えた問題は復習コーナーで攻略できます。
+          システム英単語2032問・ターゲット英熟語1000問からランダム100問の3択テスト。発音つきで、間違えた問題は復習コーナーで攻略できます。
         </p>
       </div>
       <div className="card">

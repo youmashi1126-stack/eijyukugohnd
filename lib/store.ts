@@ -1,41 +1,36 @@
 import { Redis } from "@upstash/redis";
 import fs from "node:fs";
 import path from "node:path";
-import { REVIEW_CLEAR_COUNT, type TestResult, type User } from "./types";
+import type { SetId } from "./sets";
+import { MASTERY_GOAL, MASTERY_POINTS, type Mastery, type TestResult, type User } from "./types";
 
-// 復習リスト：問題番号 → 復習コーナーでの連続正解回数（REVIEW_CLEAR_COUNT 回でリストから外す）
-// attempts は同じ解答を二重に反映しないための、最近の送信ID
-export type WrongState = { items: Record<number, number>; attempts: string[] };
+// 1人分の習熟データ：問題番号 → [習熟ポイント, 要復習(1/0)]。a は同じ解答を二重に反映しないための最近の送信ID
+type MasteryState = { m: Record<string, [number, number]>; a: string[] };
+type Summary = { mastered: number; review: number };
 
 export type AllData = {
   users: User[];
   results: Record<number, TestResult[]>;
-  wrong: Record<number, WrongState>;
   practice: Record<number, Record<number, number>>;
+  summary: Record<number, Summary>;
 };
 
 // 1回の解答送信で保存する内容
 export type SaveRequest = {
   attemptId?: string;
-  wrongAdd: number[]; // 間違えた問題（復習リストに追加、復習中なら正解回数を0に戻す）
-  reviewCorrect: number[]; // 復習コーナーで正解した問題（正解回数を1つ増やす）
+  source: keyof typeof MASTERY_POINTS; // test / practice / review（正解時の加算ポイントが違う）
+  outcomes: { id: string; correct: boolean }[];
   result?: TestResult; // 本番テストの記録
   practice?: { section: number; score: number }; // 練習モードの得点
 };
 
-// reviewProgress：復習コーナーで答えた問題ごとの正解回数（リストから外れたものは REVIEW_CLEAR_COUNT）
-export type RecordOutcome = { remaining: number; best?: number; newBest: boolean; reviewProgress: Record<number, number> };
-
-const KEEP_ATTEMPTS = 20;
-
-// 旧形式（問題番号の配列）も読めるようにする
-export function toWrongState(v: unknown): WrongState {
-  if (Array.isArray(v)) return { items: Object.fromEntries(v.map((id) => [Number(id), 0])), attempts: [] };
-  const o = (v ?? {}) as Partial<WrongState>;
-  const items: Record<number, number> = {};
-  for (const [k, c] of Object.entries(o.items ?? {})) items[Number(k)] = Number(c);
-  return { items, attempts: Array.isArray(o.attempts) ? o.attempts : [] };
-}
+export type RecordOutcome = {
+  remaining: number; // 復習すべき数
+  mastered: number; // 覚えた数
+  best?: number;
+  newBest: boolean;
+  progress: Record<string, Mastery>; // 今回答えた問題の習熟状況
+};
 
 interface Store {
   readonly persistent: boolean;
@@ -43,34 +38,68 @@ interface Store {
   hasUser(number: number): Promise<boolean>;
   // 番号が未使用なら登録して true、使用済みなら false
   addUser(user: User): Promise<boolean>;
-  getAll(): Promise<AllData>;
-  getWrong(number: number): Promise<number[]>;
-  record(number: number, rec: SaveRequest): Promise<RecordOutcome>;
+  getAll(set: SetId): Promise<AllData>;
+  getReviewIds(number: number, set: SetId): Promise<string[]>;
+  record(number: number, set: SetId, rec: SaveRequest): Promise<RecordOutcome>;
 }
 
-// 記録の反映（Redis・ローカル共通）。同じ解答の二重送信（通信の再試行など）は attemptId で弾く
+const KEEP_ATTEMPTS = 20;
+
+// 以前の復習リスト（問題番号の配列、または { items: {番号: 回数} }）を習熟データに読み替える。リストにあった問題は要復習
+function fromLegacyWrong(v: unknown): MasteryState {
+  let ids: string[] = [];
+  if (Array.isArray(v)) ids = v.map(String);
+  else if (v && typeof v === "object" && "items" in v) ids = Object.keys((v as { items: object }).items ?? {});
+  return { m: Object.fromEntries(ids.map((id) => [id, [0, 1]])), a: [] };
+}
+
+function toMasteryState(v: unknown): MasteryState | null {
+  if (!v || typeof v !== "object" || !("m" in v)) return null;
+  const o = v as Partial<MasteryState>;
+  return { m: o.m ?? {}, a: Array.isArray(o.a) ? o.a : [] };
+}
+
+function summarize(state: MasteryState): Summary {
+  let mastered = 0;
+  let review = 0;
+  for (const [p, r] of Object.values(state.m)) {
+    if (p >= MASTERY_GOAL) mastered++;
+    if (r) review++;
+  }
+  return { mastered, review };
+}
+
+// 記録の反映（Redis・ローカル共通）
 function apply(
   history: TestResult[],
-  wrong: WrongState,
   practice: Record<number, number>,
+  state: MasteryState,
   rec: SaveRequest,
-): { history: TestResult[]; wrong: WrongState; practice: Record<number, number>; outcome: RecordOutcome } {
-  const items = { ...wrong.items };
-  const reviewProgress: Record<number, number> = {};
-  const duplicate = !!rec.attemptId && wrong.attempts.includes(rec.attemptId);
+): { history: TestResult[]; practice: Record<number, number>; state: MasteryState; outcome: RecordOutcome } {
+  const m = { ...state.m };
+  const duplicate = !!rec.attemptId && state.a.includes(rec.attemptId);
   if (!duplicate) {
-    for (const id of rec.wrongAdd) items[id] = 0;
-    for (const id of rec.reviewCorrect) {
-      if (items[id] === undefined) continue;
-      const c = items[id] + 1;
-      if (c >= REVIEW_CLEAR_COUNT) delete items[id];
-      else items[id] = c;
+    const gain = MASTERY_POINTS[rec.source];
+    for (const { id, correct } of rec.outcomes) {
+      const [p, r] = m[id] ?? [0, 0];
+      if (correct) {
+        const np = Math.min(MASTERY_GOAL, p + gain);
+        m[id] = [np, np >= MASTERY_GOAL ? 0 : r];
+      } else {
+        // 不正解（時間切れ含む）は0に戻して要復習。覚えた問題も未習得に戻る
+        m[id] = [0, 1];
+      }
     }
   }
-  for (const id of rec.reviewCorrect) reviewProgress[id] = items[id] ?? REVIEW_CLEAR_COUNT;
-  for (const id of rec.wrongAdd) reviewProgress[id] = items[id] ?? 0;
-  const attempts = rec.attemptId && !duplicate ? [...wrong.attempts, rec.attemptId].slice(-KEEP_ATTEMPTS) : wrong.attempts;
-  const nextWrong = { items, attempts };
+  const progress: Record<string, Mastery> = {};
+  for (const { id } of rec.outcomes) {
+    const [p, r] = m[id] ?? [0, 0];
+    progress[id] = { points: p, review: !!r };
+  }
+  const nextState = {
+    m,
+    a: rec.attemptId && !duplicate ? [...state.a, rec.attemptId].slice(-KEEP_ATTEMPTS) : state.a,
+  };
 
   let nextHistory = history;
   if (rec.result && !(rec.result.attemptId && history.some((h) => h.attemptId === rec.result!.attemptId))) {
@@ -89,24 +118,33 @@ function apply(
     }
     best = nextPractice[section];
   }
+  const sum = summarize(nextState);
   return {
     history: nextHistory,
-    wrong: nextWrong,
     practice: nextPractice,
-    outcome: { remaining: Object.keys(items).length, best, newBest, reviewProgress },
+    state: nextState,
+    outcome: { remaining: sum.review, mastered: sum.mastered, best, newBest, progress },
   };
 }
 
 // ---------- Redis（Vercel 本番） ----------
-// 利用者ごとのデータを種類別に1つのハッシュにまとめ、ランキング表示などは数回のコマンドで読めるようにしている
-// （利用者ごとにキーを分けると、表示のたびに人数×3回のコマンドが必要になり Upstash の無料枠を超えやすい）
+// 利用者ごとのデータを種類別に1つのハッシュ（フィールド名＝番号）にまとめ、ランキング表示などは数回のコマンドで読めるようにしている
+// 習熟データは1人分が大きいので、一覧表示用には覚えた数・復習数だけの summary を別に持つ
 
 const USERS_KEY = "eijukugo:users";
-const RESULTS_KEY = "eijukugo:v2:results";
-const WRONG_KEY = "eijukugo:v2:wrong";
-const PRACTICE_KEY = "eijukugo:v2:practice";
 const MIGRATED_KEY = "eijukugo:v2:migrated";
-// 旧形式（利用者ごとのキー）
+// 英熟語は以前からのキーをそのまま使い、英単語は別のキーに保存する
+function keysFor(set: SetId) {
+  const p = set === "idiom" ? "eijukugo:v2:" : "eijukugo:v2:word:";
+  return {
+    results: `${p}results`,
+    practice: `${p}practice`,
+    mastery: `${p}mastery`,
+    summary: `${p}summary`,
+    legacyWrong: set === "idiom" ? "eijukugo:v2:wrong" : null,
+  };
+}
+// 最初の形式（利用者ごとのキー）
 const oldResultsKey = (n: number) => `eijukugo:results:${n}`;
 const oldWrongKey = (n: number) => `eijukugo:wrong:${n}`;
 const oldPracticeKey = (n: number) => `eijukugo:practice:${n}`;
@@ -135,7 +173,7 @@ class RedisStore implements Store {
 
   constructor(private redis: Redis) {}
 
-  // 旧形式のデータがあれば一度だけ新形式へ移す
+  // 最初の形式のデータがあれば一度だけ新形式へ移す
   private async migrate() {
     if (this.migrated) return;
     if (await this.redis.get(MIGRATED_KEY)) {
@@ -143,6 +181,7 @@ class RedisStore implements Store {
       return;
     }
     const users = await this.getUsers();
+    const k = keysFor("idiom");
     if (users.length > 0) {
       const p = this.redis.pipeline();
       for (const u of users) {
@@ -157,9 +196,9 @@ class RedisStore implements Store {
         const wrong = ((res[i * 3 + 1] as unknown[]) ?? []).map(Number);
         const practice = toNumberRecord(res[i * 3 + 2] as Record<string, unknown> | null);
         const f = String(u.number);
-        if (results.length) w.hsetnx(RESULTS_KEY, f, JSON.stringify(results));
-        if (wrong.length) w.hsetnx(WRONG_KEY, f, JSON.stringify(wrong));
-        if (Object.keys(practice).length) w.hsetnx(PRACTICE_KEY, f, JSON.stringify(practice));
+        if (results.length) w.hsetnx(k.results, f, JSON.stringify(results));
+        if (wrong.length) w.hsetnx(k.legacyWrong!, f, JSON.stringify(wrong));
+        if (Object.keys(practice).length) w.hsetnx(k.practice, f, JSON.stringify(practice));
       });
       w.set(MIGRATED_KEY, new Date().toISOString());
       await w.exec();
@@ -183,48 +222,66 @@ class RedisStore implements Store {
     return ok === 1;
   }
 
-  async getAll() {
+  async getAll(set: SetId) {
     await this.migrate();
+    const k = keysFor(set);
     const p = this.redis.pipeline();
     p.hgetall(USERS_KEY);
-    p.hgetall(RESULTS_KEY);
-    p.hgetall(WRONG_KEY);
-    p.hgetall(PRACTICE_KEY);
-    const [users, results, wrong, practice] = await p.exec<(Record<string, unknown> | null)[]>();
+    p.hgetall(k.results);
+    p.hgetall(k.practice);
+    p.hgetall(k.summary);
+    if (k.legacyWrong) p.hgetall(k.legacyWrong);
+    const [users, results, practice, summary, legacy] = await p.exec<(Record<string, unknown> | null)[]>();
+    const sums = byNumber<Summary>(summary, { mastered: 0, review: 0 });
+    // 習熟データがまだない人は、以前の復習リストの数を復習数として使う
+    for (const [n, v] of Object.entries(byNumber<unknown>(legacy ?? null, null))) {
+      if (!sums[Number(n)]) sums[Number(n)] = summarize(fromLegacyWrong(v));
+    }
     return {
       users: Object.values(users ?? {}).map((v) => parse<User>(v, {} as User)),
       results: byNumber<TestResult[]>(results, []),
-      wrong: Object.fromEntries(
-        Object.entries(byNumber<unknown>(wrong, null)).map(([k, v]) => [Number(k), toWrongState(v)]),
-      ) as Record<number, WrongState>,
       practice: byNumber<Record<number, number>>(practice, {}),
+      summary: sums,
     };
   }
 
-  async getWrong(number: number) {
-    await this.migrate();
-    const state = toWrongState(parse<unknown>(await this.redis.hget(WRONG_KEY, String(number)), null));
-    return Object.keys(state.items).map(Number);
+  private async loadMastery(set: SetId, f: string, masteryRaw: unknown): Promise<MasteryState> {
+    const state = toMasteryState(parse<unknown>(masteryRaw, null));
+    if (state) return state;
+    const k = keysFor(set);
+    if (!k.legacyWrong) return { m: {}, a: [] };
+    return fromLegacyWrong(parse<unknown>(await this.redis.hget(k.legacyWrong, f), null));
   }
 
-  async record(number: number, rec: SaveRequest) {
+  async getReviewIds(number: number, set: SetId) {
     await this.migrate();
     const f = String(number);
+    const state = await this.loadMastery(set, f, await this.redis.hget(keysFor(set).mastery, f));
+    return Object.entries(state.m)
+      .filter(([, [, r]]) => r)
+      .map(([id]) => id);
+  }
+
+  async record(number: number, set: SetId, rec: SaveRequest) {
+    await this.migrate();
+    const k = keysFor(set);
+    const f = String(number);
     const p = this.redis.pipeline();
-    p.hget(RESULTS_KEY, f);
-    p.hget(WRONG_KEY, f);
-    p.hget(PRACTICE_KEY, f);
-    const [h, w, pr] = await p.exec<unknown[]>();
+    p.hget(k.results, f);
+    p.hget(k.practice, f);
+    p.hget(k.mastery, f);
+    const [h, pr, ms] = await p.exec<unknown[]>();
     const next = apply(
       parse<TestResult[]>(h, []),
-      toWrongState(parse<unknown>(w, null)),
       toNumberRecord(parse<Record<string, unknown>>(pr, {})),
+      await this.loadMastery(set, f, ms),
       rec,
     );
     const q = this.redis.pipeline();
-    q.hset(WRONG_KEY, { [f]: JSON.stringify(next.wrong) });
-    if (rec.result) q.hset(RESULTS_KEY, { [f]: JSON.stringify(next.history) });
-    if (rec.practice) q.hset(PRACTICE_KEY, { [f]: JSON.stringify(next.practice) });
+    q.hset(k.mastery, { [f]: JSON.stringify(next.state) });
+    q.hset(k.summary, { [f]: JSON.stringify(summarize(next.state)) });
+    if (rec.result) q.hset(k.results, { [f]: JSON.stringify(next.history) });
+    if (rec.practice) q.hset(k.practice, { [f]: JSON.stringify(next.practice) });
     await q.exec();
     return next.outcome;
   }
@@ -232,11 +289,19 @@ class RedisStore implements Store {
 
 // ---------- ローカル開発用（.data/db.json に保存） ----------
 
+type SetData = {
+  results: Record<string, TestResult[]>;
+  practice: Record<string, Record<string, number>>;
+  mastery: Record<string, MasteryState>;
+};
+
 type Db = {
   users: Record<string, User>;
-  results: Record<string, TestResult[]>;
-  wrong?: Record<string, WrongState | number[]>;
+  sets: Partial<Record<SetId, SetData>>;
+  // 以前の形式（英熟語のみ）
+  results?: Record<string, TestResult[]>;
   practice?: Record<string, Record<string, number>>;
+  wrong?: Record<string, unknown>;
 };
 
 class LocalStore implements Store {
@@ -249,8 +314,20 @@ class LocalStore implements Store {
     try {
       this.db = JSON.parse(fs.readFileSync(this.file, "utf8"));
     } catch {
-      this.db = { users: {}, results: {} };
+      this.db = { users: {}, sets: {} };
     }
+    this.db.sets ??= {};
+    if (!this.db.sets.idiom && (this.db.results || this.db.wrong)) {
+      this.db.sets.idiom = {
+        results: this.db.results ?? {},
+        practice: this.db.practice ?? {},
+        mastery: Object.fromEntries(Object.entries(this.db.wrong ?? {}).map(([n, v]) => [n, fromLegacyWrong(v)])),
+      };
+    }
+  }
+
+  private data(set: SetId): SetData {
+    return (this.db.sets[set] ??= { results: {}, practice: {}, mastery: {} });
   }
 
   private save() {
@@ -277,33 +354,33 @@ class LocalStore implements Store {
     return true;
   }
 
-  async getAll() {
+  async getAll(set: SetId) {
+    const d = this.data(set);
     const results: Record<number, TestResult[]> = {};
-    const wrong: Record<number, WrongState> = {};
     const practice: Record<number, Record<number, number>> = {};
+    const summary: Record<number, Summary> = {};
     for (const k of Object.keys(this.db.users)) {
       const n = Number(k);
-      results[n] = this.db.results[k] ?? [];
-      wrong[n] = toWrongState(this.db.wrong?.[k]);
-      practice[n] = toNumberRecord(this.db.practice?.[k]);
+      results[n] = d.results[k] ?? [];
+      practice[n] = toNumberRecord(d.practice[k]);
+      summary[n] = summarize(d.mastery[k] ?? { m: {}, a: [] });
     }
-    return { users: Object.values(this.db.users), results, wrong, practice };
+    return { users: Object.values(this.db.users), results, practice, summary };
   }
 
-  async getWrong(number: number) {
-    return Object.keys(toWrongState(this.db.wrong?.[number]).items).map(Number);
+  async getReviewIds(number: number, set: SetId) {
+    const state = this.data(set).mastery[number] ?? { m: {}, a: [] };
+    return Object.entries(state.m)
+      .filter(([, [, r]]) => r)
+      .map(([id]) => id);
   }
 
-  async record(number: number, rec: SaveRequest) {
-    const next = apply(
-      this.db.results[number] ?? [],
-      toWrongState(this.db.wrong?.[number]),
-      toNumberRecord(this.db.practice?.[number]),
-      rec,
-    );
-    this.db.results[number] = next.history;
-    (this.db.wrong ??= {})[number] = next.wrong;
-    (this.db.practice ??= {})[number] = next.practice;
+  async record(number: number, set: SetId, rec: SaveRequest) {
+    const d = this.data(set);
+    const next = apply(d.results[number] ?? [], toNumberRecord(d.practice[number]), d.mastery[number] ?? { m: {}, a: [] }, rec);
+    d.results[number] = next.history;
+    d.practice[number] = next.practice;
+    d.mastery[number] = next.state;
     this.save();
     return next.outcome;
   }

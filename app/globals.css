@@ -1537,3 +1537,235 @@ table.ranking {
   background: #fee2e2;
   color: #b91c1c;
 }
+
+/* ===== 英単語モードのテーマ（エメラルド × アンバー） ===== */
+[data-set="word"] {
+  --primary: #059669;
+  --primary-2: #f59e0b;
+  --primary-soft: #e3f7ee;
+  --border: #dcefe5;
+  --shadow: 0 8px 24px rgba(5, 150, 105, 0.14);
+  --text: #12332a;
+  --muted: #5f7d72;
+}
+
+[data-set="word"] body {
+  background: linear-gradient(160deg, #fffbea 0%, #ecfdf5 40%, #e0f7f4 70%, #fef6e4 100%) fixed;
+}
+
+[data-set="word"] .hero {
+  background: linear-gradient(135deg, #047857 0%, #10b981 55%, #f59e0b 100%);
+}
+
+[data-set="word"] .practice-hero {
+  background: linear-gradient(135deg, #0d9488 0%, #14b8a6 45%, #fbbf24 100%);
+}
+
+[data-set="word"] .progress > div {
+  background: linear-gradient(90deg, #fbbf24, #34d399, #059669, #0ea5e9);
+  background-size: 300% 100%;
+}
+
+[data-set="word"] .menu-test {
+  background: linear-gradient(135deg, #059669, #10b981);
+}
+
+[data-set="word"] .menu-practice {
+  background: linear-gradient(135deg, #0d9488, #22d3ee);
+}
+
+[data-set="word"] .btn-primary {
+  box-shadow: 0 6px 16px rgba(5, 150, 105, 0.3);
+}
+
+[data-set="word"] .ranking tr.row:hover td,
+[data-set="word"] .history-row td,
+[data-set="word"] .race-row,
+[data-set="word"] .number-cell.taken {
+  background: #f3fbf7;
+}
+
+/* ヘッダーのモード表示 */
+.set-badge {
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(90deg, var(--primary), var(--primary-2));
+  white-space: nowrap;
+}
+
+/* ホームのモード切り替え */
+.set-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.set-tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 3px solid transparent;
+  background: rgba(255, 255, 255, 0.75);
+  text-align: left;
+  transition: transform 0.12s;
+}
+
+.set-tab:hover {
+  transform: translateY(-2px);
+}
+
+.set-tab-icon {
+  font-size: 28px;
+}
+
+.set-tab b {
+  display: block;
+  font-size: 16px;
+}
+
+.set-tab small {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.set-tab.word.active {
+  border-color: #059669;
+  background: linear-gradient(135deg, #d1fae5, #fef3c7);
+  box-shadow: 0 6px 18px rgba(5, 150, 105, 0.25);
+}
+
+.set-tab.idiom.active {
+  border-color: #7c3aed;
+  background: linear-gradient(135deg, #ede9fe, #fce7f3);
+  box-shadow: 0 6px 18px rgba(124, 58, 237, 0.25);
+}
+
+/* 習得状況 */
+.mastery-card .mastery-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mastery-percent {
+  font-size: 48px;
+  font-weight: 800;
+  line-height: 1;
+  background: linear-gradient(90deg, var(--primary), var(--primary-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.mastery-count {
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.mastery-count b {
+  font-size: 22px;
+  color: var(--text);
+}
+
+.mastery-bar {
+  height: 18px;
+  margin: 12px 0 8px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  overflow: hidden;
+}
+
+.mastery-bar > div {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--primary), var(--primary-2));
+  transition: width 0.6s;
+}
+
+.mastery-rule {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+/* 復習コーナーの開始前画面 */
+.review-preview .big-number {
+  font-size: 64px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--primary);
+}
+
+.rule-list {
+  text-align: left;
+  margin: 16px auto;
+  max-width: 520px;
+  padding: 14px 18px 14px 34px;
+  border-radius: 16px;
+  background: var(--primary-soft);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.rule-list li + li {
+  margin-top: 6px;
+}
+
+/* 習熟ポイント表示 */
+.mastery-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  background: #e0f2fe;
+  color: #0369a1;
+  vertical-align: middle;
+}
+
+.mastery-badge.done {
+  background: linear-gradient(90deg, #fde68a, #fbbf24);
+  color: #92400e;
+}
+
+.mastery-badge.reset {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* 日別ランキング */
+.date-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.date-row input[type="date"] {
+  font: inherit;
+  font-weight: 800;
+  padding: 8px 12px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--text);
+}
+
+.big-tabs.three {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.big-tabs button.active.daily {
+  background: linear-gradient(135deg, #0ea5e9, #6366f1);
+}

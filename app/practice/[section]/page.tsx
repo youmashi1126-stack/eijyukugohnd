@@ -5,48 +5,51 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { loadMyNumber } from "@/lib/me";
 import { speak } from "@/lib/sound";
+import { SETS } from "@/lib/sets";
 import {
   isValidSection,
   markFor,
   PASS_SCORE,
   PRACTICE_QUESTION_COUNT,
   PRACTICE_SEC_PER_QUESTION,
-  SECTION_COUNT,
-  SECTION_SIZE,
-  sectionRange,
   type Player,
 } from "@/lib/types";
+import { useSet } from "../../SetContext";
 
-type Item = { id: number; phrase: string; meaning: string; example: string | null; exampleJa: string | null };
+type Item = { id: string; phrase: string; meaning: string; example: string | null; exampleJa: string | null };
 
 export default function SectionPage() {
   const section = Number(useParams<{ section: string }>().section);
+  const { set, ready } = useSet();
   const [items, setItems] = useState<Item[] | null>(null);
   const [best, setBest] = useState<number | undefined>(undefined);
-  const [open, setOpen] = useState<number | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const [hideMeaning, setHideMeaning] = useState(false);
-  const [revealed, setRevealed] = useState<Set<number>>(new Set());
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
+  const SECTION_COUNT = SETS[set].sections;
 
   useEffect(() => {
-    if (!isValidSection(section)) return;
+    if (!ready || !isValidSection(section, set)) return;
     setItems(null);
     setOpen(null);
     setRevealed(new Set());
-    fetch(`/api/practice?section=${section}`)
+    setBest(undefined);
+    fetch(`/api/practice?set=${set}&section=${section}`)
       .then((r) => r.json())
       .then((d) => setItems(d.items))
       .catch(() => setError("単語を読み込めませんでした。再読み込みしてください。"));
     const n = loadMyNumber();
     if (n !== null) {
-      fetch("/api/players", { cache: "no-store" })
+      fetch(`/api/players?set=${set}`, { cache: "no-store" })
         .then((r) => r.json())
         .then((d) => setBest(d.players.find((p: Player) => p.number === n)?.practice[section]))
         .catch(() => {});
     }
-  }, [section]);
+  }, [section, set, ready]);
 
-  if (!isValidSection(section)) {
+  if (!ready) return <p className="muted center">読み込み中…</p>;
+  if (!isValidSection(section, set)) {
     return (
       <p className="muted center">
         セクションが見つかりません。<Link href="/practice">セクション一覧へ</Link>
@@ -55,7 +58,8 @@ export default function SectionPage() {
   }
   if (error) return <p className="error">{error}</p>;
 
-  const [from, to] = sectionRange(section);
+  const from = items?.[0]?.id;
+  const to = items?.[items.length - 1]?.id;
   const mark = markFor(best);
 
   function toggle(item: Item) {
@@ -74,11 +78,12 @@ export default function SectionPage() {
           ← セクションマップ
         </Link>
         <h1 style={{ marginTop: 6 }}>
-          📖 セクション{section}{" "}
+          📖 {SETS[set].label} セクション{section}{" "}
           {mark && <span className={`mark ${mark === "◎" ? "perfect" : "pass"}`}>{mark}</span>}
         </h1>
         <p className="muted" style={{ margin: 0 }}>
-          No.{from}〜{to}・{SECTION_SIZE}問。単語をタップすると発音と例文が出ます。
+          {from && `No.${from}〜${to}・${items?.length}問。`}
+          {set === "word" ? "単語をタップすると発音が聞けます。" : "単語をタップすると発音と例文が出ます。"}
           {best !== undefined ? ` 自己ベスト ${best}/${PRACTICE_QUESTION_COUNT}点` : " まだ挑戦していません"}
         </p>
         <div className="btn-row">
@@ -131,7 +136,7 @@ export default function SectionPage() {
                       <div className="ex-ja">{item.exampleJa}</div>
                     </div>
                   ) : (
-                    <p className="muted">例文は準備中です</p>
+                    set === "idiom" && <p className="muted">例文は準備中です</p>
                   )}
                 </div>
               )}

@@ -1,9 +1,10 @@
+import type { SetId } from "./sets";
 import { getStore } from "./store";
 import type { Player } from "./types";
 
-// 全参加者の受験回数・平均点を集計し、平均点の高い順に並べる
-export async function getPlayers(): Promise<Player[]> {
-  const { users, results, wrong, practice } = await getStore().getAll();
+// 全参加者の受験回数・平均点・習熟状況を集計し、平均点の高い順に並べる（英単語・英熟語は別々に集計）
+export async function getPlayers(set: SetId): Promise<Player[]> {
+  const { users, results, practice, summary } = await getStore().getAll(set);
 
   const players: Player[] = users.map((u) => {
     const history = results[u.number] ?? [];
@@ -17,9 +18,10 @@ export async function getPlayers(): Promise<Player[]> {
       best: count > 0 ? Math.max(...history.map((r) => r.score)) : null,
       lastAt: count > 0 ? history[count - 1].at : null,
       rank: null,
-      wrongCount: Object.keys(wrong[u.number]?.items ?? {}).length,
-      practice: practice[u.number] ?? {},
       history,
+      practice: practice[u.number] ?? {},
+      mastered: summary[u.number]?.mastered ?? 0,
+      reviewCount: summary[u.number]?.review ?? 0,
     };
   });
 

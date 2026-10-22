@@ -6,18 +6,21 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { formatDuration, loadMyNumber } from "@/lib/me";
 import { playSfx, speak } from "@/lib/sound";
 import { cheerFor, titleFor } from "@/lib/titles";
+import { SETS } from "@/lib/sets";
 import {
   markFor,
+  MASTERY_GOAL,
+  MASTERY_POINTS,
   PASS_SCORE,
   PRACTICE_SEC_PER_QUESTION,
-  REVIEW_CLEAR_COUNT,
   REVIEW_COUNT,
-  sectionRange,
   TEST_TIME_LIMIT_SEC,
   type DetailItem,
+  type Mastery,
   type Mode,
   type Question,
 } from "@/lib/types";
+import { useSet } from "../SetContext";
 
 const LABELS = ["ア", "イ", "ウ"];
 const FLASH_MS = 150; // 選んだ選択肢を一瞬光らせてから次へ
@@ -36,7 +39,8 @@ type Result = {
   timeUp: boolean;
   newBest: boolean;
   best?: number;
-  reviewProgress?: Record<number, number>;
+  mastered?: number;
+  progress?: Record<string, Mastery>;
 };
 
 export default function TestPage() {
@@ -56,6 +60,9 @@ function TestRunner() {
   // 復習コーナーと練習モードは1問ごとに答え合わせ（練習モードは「次へ」を押すまで確認できる）
   const instant = mode === "review" || mode === "practice";
 
+  const { set, ready } = useSet();
+  const [preview, setPreview] = useState(false);
+  const [reviewRemaining, setReviewRemaining] = useState(0);
   const [myNumber, setMyNumber] = useState<number | null>(null);
   const [questions, setQuestions] = useState<Question[] | null>(null);
   const [idx, setIdx] = useState(0);
@@ -94,12 +101,15 @@ function TestRunner() {
       setResult(null);
       setError("");
       try {
-        let url = "/api/test";
-        if (mode === "review") url = `/api/test?mode=review&number=${n}`;
-        if (mode === "practice") url = `/api/test?mode=practice&section=${section}`;
+        let url = `/api/test?set=${set}`;
+        if (mode === "review") url += `&mode=review&number=${n}`;
+        if (mode === "practice") url += `&mode=practice&section=${section}`;
         const res = await fetch(url, { cache: "no-store" });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
+        // 復習コーナーは開始前に残り数とルールを見せ、「スタート」でタイマーを始める
+        setReviewRemaining(data.remaining ?? 0);
+        setPreview(mode === "review" && data.questions.length > 0);
         picksRef.current = new Array(data.questions.length).fill(null);
         setPicks([...picksRef.current]);
         maxCombo.current = 0;
@@ -119,10 +129,11 @@ function TestRunner() {
         setError("問題を読み込めませんでした。再読み込みしてください。");
       }
     },
-    [mode, section, goTo],
+    [mode, section, set, goTo],
   );
 
   useEffect(() => {
+    if (!ready) return;
     const n = loadMyNumber();
     if (n === null) {
       router.replace("/");
@@ -130,7 +141,14 @@ function TestRunner() {
     }
     setMyNumber(n);
     start(n);
-  }, [router, start]);
+  }, [router, start, ready]);
+
+  const beginReview = useCallback(() => {
+    setPreview(false);
+    startedAt.current = Date.now();
+    setNow(Date.now());
+    goTo(0);
+  }, [goTo]);
 
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
@@ -146,6 +164,7 @@ function TestRunner() {
       let durationSec = Math.floor((Date.now() - startedAt.current) / 1000);
       if (mode === "test") durationSec = Math.min(durationSec, TEST_TIME_LIMIT_SEC);
       const body = JSON.stringify({
+        set,
         number: myNumber,
         mode,
         section: mode === "practice" ? section : undefined,
@@ -181,7 +200,7 @@ function TestRunner() {
       setSubmitting(false);
       setError(`${lastError} 結果はまだ記録されていません。電波の良い場所で「結果を送信」を押してください。`);
     },
-    [questions, myNumber, mode, section],
+    [questions, myNumber, mode, section, set],
   );
 
   // 回答後（または時間切れ後）に次の問題へ
@@ -246,16 +265,16 @@ function TestRunner() {
     [questions, instant, mode, combo, afterAnswer, nextReview],
   );
 
-  // タイマー
+  // タイマー（復習コーナーの開始前画面では動かさない）
   useEffect(() => {
-    if (!questions || result || questions.length === 0) return;
+    if (!questions || result || questions.length === 0 || preview) return;
     const t = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(t);
-  }, [questions, result]);
+  }, [questions, result, preview]);
 
   // テスト中にページを閉じたり戻ったりすると記録されないので確認する
   useEffect(() => {
-    if (!questions || result || questions.length === 0) return;
+    if (!questions || result || questions.length === 0 || preview) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
     // ヘッダーのリンクなどアプリ内の移動も確認する
     const onClick = (e: MouseEvent) => {
@@ -271,11 +290,11 @@ function TestRunner() {
       window.removeEventListener("beforeunload", onBeforeUnload);
       document.removeEventListener("click", onClick, true);
     };
-  }, [questions, result]);
+  }, [questions, result, preview]);
 
   // 制限時間のチェック
   useEffect(() => {
-    if (!questions || result || questions.length === 0 || submitted.current) return;
+    if (!questions || result || questions.length === 0 || submitted.current || preview) return;
     // 送信に失敗しても繰り返し自動送信しない（再送信は「結果を送信」ボタンで）
     if (mode === "test" && !timeUpFired.current && now >= startedAt.current + TEST_TIME_LIMIT_SEC * 1000) {
       submit(true);
@@ -288,16 +307,16 @@ function TestRunner() {
       setCombo(0);
       playSfx("wrong");
     }
-  }, [now, questions, result, mode, submit]);
+  }, [now, questions, result, mode, submit, preview]);
 
   // 問題が変わったら発音する
   useEffect(() => {
-    if (questions && questions[idx] && !result) speak(questions[idx].phrase);
-  }, [questions, idx, result]);
+    if (questions && questions[idx] && !result && !preview) speak(questions[idx].phrase);
+  }, [questions, idx, result, preview]);
 
   // キーボード：1/2/3 で回答、← で前へ（テスト）、Enter で次へ（復習）
   useEffect(() => {
-    if (!questions || result) return;
+    if (!questions || result || preview) return;
     const onKey = (e: KeyboardEvent) => {
       const i = ["1", "2", "3"].indexOf(e.key);
       if (i >= 0) choose(i);
@@ -309,7 +328,11 @@ function TestRunner() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [questions, result, mode, instant, picked, choose, goTo, nextReview]);
+  }, [questions, result, mode, instant, picked, choose, goTo, nextReview, preview]);
+
+  const info = SETS[set];
+  // 復習で「覚えた」になるまでの連続正解回数（6 ÷ 1.5 = 4回）
+  const reviewStreak = Math.ceil(MASTERY_GOAL / MASTERY_POINTS.review);
 
   if (result && myNumber !== null) {
     return <ResultView result={result} mode={mode} section={section} onRetry={() => start(myNumber)} />;
@@ -321,14 +344,48 @@ function TestRunner() {
     return (
       <div className="card empty-state">
         <div className="big">🎉</div>
-        <h1>復習する問題はありません！</h1>
+        <h1>復習する{info.unit}はありません！</h1>
         <p className="muted">
-          テストや練習で間違えた問題（時間切れは除く）がここにたまります。復習で{REVIEW_CLEAR_COUNT}回正解するとリストから消えるよ。
+          テストや練習で間違えた{info.unit}がここにたまります。復習コーナーで{reviewStreak}回連続正解すると「覚えた」になり、リストから卒業します。
         </p>
         <div className="btn-row" style={{ justifyContent: "center" }}>
           <Link href="/test" className="btn btn-primary btn-large">
             🚀 テストに挑戦
           </Link>
+          <Link href="/" className="btn btn-large">
+            ホームへ
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (preview) {
+    return (
+      <div className="card center review-preview">
+        <p className="muted" style={{ margin: 0, fontWeight: 800 }}>
+          🔁 {info.label}モード 復習コーナー
+        </p>
+        <p style={{ margin: "12px 0 0", fontWeight: 800 }}>現在の復習対象：残り</p>
+        <div className="big-number">
+          {reviewRemaining}
+          <small style={{ fontSize: 22 }}> {set === "word" ? "語" : "問"}</small>
+        </div>
+        <ul className="rule-list">
+          <li>
+            復習すべき{info.unit}の中からランダムに<b>{REVIEW_COUNT}問</b>（{REVIEW_COUNT}問未満の場合は全問）にチャレンジします
+          </li>
+          <li>
+            復習コーナーでは<b>{reviewStreak}回連続正解</b>
+            （テストなら{Math.ceil(MASTERY_GOAL / MASTERY_POINTS.test)}回、練習なら
+            {Math.ceil(MASTERY_GOAL / MASTERY_POINTS.practice)}回連続正解相当の習熟ポイント到達）で「覚えた」となり、復習リストから卒業します
+          </li>
+          <li>間違えると習熟ポイントは0に戻ります。1問ごとに答え合わせがあります</li>
+        </ul>
+        <div className="btn-row" style={{ justifyContent: "center" }}>
+          <button className="btn btn-primary btn-large" onClick={beginReview}>
+            ▶ スタート（{questions.length}問）
+          </button>
           <Link href="/" className="btn btn-large">
             ホームへ
           </Link>
@@ -461,7 +518,7 @@ function TestRunner() {
         {mode === "practice" &&
           `1問${PRACTICE_SEC_PER_QUESTION}秒以内に答えよう！答え合わせを確認したら「次へ」（1・2・3キーで回答、Enterで次へ）`}
         {mode === "review" &&
-          `間違えた問題からランダム${REVIEW_COUNT}問。${REVIEW_CLEAR_COUNT}回正解でリストから消えます（1・2・3キーで回答、Enterで次へ）`}
+          `復習すべき${info.unit}からランダム${REVIEW_COUNT}問。${reviewStreak}回連続正解で「覚えた」に（1・2・3キーで回答、Enterで次へ）`}
       </p>
     </>
   );
@@ -530,7 +587,7 @@ function ResultView({
     mode === "review"
       ? "🔁 復習コーナー 結果"
       : mode === "practice"
-        ? `📚 練習 セクション${section}（No.${sectionRange(section).join("〜")}）`
+        ? `📚 練習 セクション${section}`
         : "🚀 テスト結果";
 
   return (
@@ -562,14 +619,13 @@ function ResultView({
           <span>⏱ {formatDuration(result.durationSec)}</span>
           {mode === "review" && <span>🔥 最大 {result.maxCombo} コンボ</span>}
           {mode === "practice" && result.best !== undefined && <span>🏅 ベスト {result.best}点</span>}
-          <span>🔁 復習リスト 残り {result.remaining}問</span>
+          <span>🔁 復習リスト 残り {result.remaining}</span>
+          {result.mastered !== undefined && <span>🎓 覚えた {result.mastered.toLocaleString()}</span>}
         </div>
-        {mode === "review" && (
-          <p className="muted">
-            今回 ✨{Object.values(result.reviewProgress ?? {}).filter((c) => c >= REVIEW_CLEAR_COUNT).length}
-            問が復習クリア！（復習コーナーの結果はランキングには入りません）
-          </p>
-        )}
+        <p className="muted">
+          今回 ✨{Object.values(result.progress ?? {}).filter((m) => m.points >= MASTERY_GOAL).length}
+          問が「覚えた」に！{mode === "review" && "（復習コーナーの結果はランキングには入りません）"}
+        </p>
         <div className="btn-row" style={{ justifyContent: "center" }}>
           <button className="btn btn-primary btn-large" onClick={onRetry}>
             {mode === "review" ? "🔁 もう一度復習" : "🚀 もう一度挑戦"}
@@ -620,7 +676,7 @@ function ResultView({
                 <span className={r.correct ? "res-ok" : "res-ng"}>{r.correct ? "◯" : "✕"}</span>{" "}
                 {filter === "all" && <span className="muted">Q{i + 1}　</span>}
                 {r.phrase}
-                {mode === "review" && <ReviewBadge count={result.reviewProgress?.[r.id]} correct={r.correct} />}
+                <MasteryBadge m={result.progress?.[r.id]} correct={r.correct} />
               </div>
               {!r.correct && <div className="wrong">あなたの答え：{r.chosen ?? "（未回答・時間切れ）"}</div>}
               <div className="right">正しい意味：{r.meaning}</div>
@@ -632,10 +688,10 @@ function ResultView({
   );
 }
 
-// 復習コーナーの問題ごとの進み具合（2回正解でリストから外れる）
-function ReviewBadge({ count, correct }: { count: number | undefined; correct: boolean }) {
-  if (count === undefined) return null;
-  if (count >= REVIEW_CLEAR_COUNT) return <span className="review-badge clear">✨ 復習クリア！</span>;
-  if (correct) return <span className="review-badge">あと{REVIEW_CLEAR_COUNT - count}回正解でクリア</span>;
-  return <span className="review-badge reset">正解回数リセット</span>;
+// 問題ごとの習熟ポイント（6点で「覚えた」、間違えると0点に戻る）
+function MasteryBadge({ m, correct }: { m: Mastery | undefined; correct: boolean }) {
+  if (!m) return null;
+  if (m.points >= MASTERY_GOAL) return <span className="mastery-badge done">✨ 覚えた！</span>;
+  if (correct) return <span className="mastery-badge">習熟 {m.points}/{MASTERY_GOAL}</span>;
+  return <span className="mastery-badge reset">0点に戻って要復習</span>;
 }
