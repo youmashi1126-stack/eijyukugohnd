@@ -573,8 +573,19 @@ function findD1(): D1Like | null {
 
 // Redis の接続先を環境変数から探す。
 // Vercel の Upstash 連携は KV_REST_API_*（接頭辞を付けた場合は 〇〇_KV_REST_API_*）、Upstash 直接なら UPSTASH_REDIS_REST_* が設定される
+// 環境変数（Cloudflare では Worker の変数・シークレットも合わせて見る）
+function allEnv(): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...process.env };
+  try {
+    for (const [k, v] of Object.entries(getCloudflareContext().env as Record<string, unknown>)) {
+      if (typeof v === "string") env[k] ??= v;
+    }
+  } catch {}
+  return env;
+}
+
 function findRedisConfig(): { url: string; token: string } | null {
-  const env = process.env;
+  const env = allEnv();
   const keys = Object.keys(env);
   for (const urlKey of keys.filter((k) => /(^|_)(KV_REST_API_URL|UPSTASH_REDIS_REST_URL)$/.test(k))) {
     const token = env[urlKey.replace(/URL$/, "TOKEN")];
@@ -593,7 +604,7 @@ function findRedisConfig(): { url: string; token: string } | null {
 
 // 保存先が見つからないときの手がかり（Redis 関連の環境変数の「名前」だけ。値は出さない）
 export function redisEnvNames(): string[] {
-  return Object.keys(process.env).filter((k) => /REDIS|UPSTASH|(^|_)KV_/.test(k));
+  return Object.keys(allEnv()).filter((k) => /REDIS|UPSTASH|(^|_)KV_/.test(k));
 }
 
 let store: Store | undefined;
