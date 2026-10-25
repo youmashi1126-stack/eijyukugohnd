@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Fragment, useEffect, useState } from "react";
 import { formatDate, formatDuration, loadMyNumber } from "@/lib/me";
 import { titleFor } from "@/lib/titles";
@@ -265,6 +266,9 @@ export default function RankingPage() {
           📚 練習
         </button>
       </div>
+      <p className="center study-link">
+        <Link href="/study/ranking">⏱️ 学習時間のランキングはこちら ›</Link>
+      </p>
     </>
   );
 
