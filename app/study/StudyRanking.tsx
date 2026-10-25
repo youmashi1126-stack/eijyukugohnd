@@ -47,7 +47,7 @@ function DailyStudyRanking({ data, myNumber }: { data: Data; myNumber: number | 
       <div className="card hero study-hero">
         <h1>📅 {date === data.today ? "今日" : dayLabel(date)}の学習時間</h1>
         <p className="muted" style={{ margin: 0 }}>
-          その日に記録した学習時間の長い順に並ぶランキングです。学習時間は「学習時間記録」から入力できます。
+          その日に記録した学習時間の長い順に並ぶランキングです。学習時間はホームの「学習時間」コーナーから入力できます。
         </p>
         <div className="stats" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
           <div className="stat">
@@ -233,7 +233,7 @@ export default function StudyRanking({ initialTab = "daily" }: { initialTab?: "d
       </div>
       {tab === "daily" ? <DailyStudyRanking data={data} myNumber={myNumber} /> : <WeeklyStudyRanking data={data} myNumber={myNumber} />}
       <p className="center">
-        <Link href="/study" className="btn btn-primary">
+        <Link href="/" className="btn btn-primary">
           ⏱️ 学習時間を記録する
         </Link>
       </p>

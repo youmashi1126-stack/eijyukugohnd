@@ -220,28 +220,31 @@ function rankLabel(rank: number | null) {
 }
 
 export default function RankingPage() {
-  const { set, ready, changeSet } = useSet();
+  const { set, corner, ready, changeSet, openStudy } = useSet();
   const [players, setPlayers] = useState<Player[] | null>(null);
   const [error, setError] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("average");
   const [open, setOpen] = useState<number | null>(null);
   const [myNumber, setMyNumber] = useState<number | null>(null);
   const [tab, setTab] = useState<"test" | "daily" | "practice">("test");
-  // 英単語・英熟語のランキングか、学習時間のランキングか（?view=study で学習時間を開く）
-  const [view, setView] = useState<"set" | "study" | null>(null);
   const [studyTab, setStudyTab] = useState<"daily" | "weekly">("daily");
+  const [params, setParams] = useState<URLSearchParams | null>(null);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    setParams(new URLSearchParams(window.location.search));
+  }, []);
+
+  // ?view=study は学習時間のコーナー、?tab= は最初に開くタブ
+  useEffect(() => {
+    if (!ready || !params) return;
     const t = params.get("tab");
     if (params.get("view") === "study") {
       if (t === "weekly") setStudyTab("weekly");
-      setView("study");
-      return;
+      openStudy();
+    } else if (t === "practice" || t === "daily") {
+      setTab(t);
     }
-    if (t === "practice" || t === "daily") setTab(t);
-    setView("set");
-  }, []);
+  }, [ready, params, openStudy]);
 
   useEffect(() => {
     if (!ready) return;
@@ -259,32 +262,30 @@ export default function RankingPage() {
       {(["word", "idiom"] as SetId[]).map((s) => (
         <button
           key={s}
-          className={view === "set" && set === s ? "active" : ""}
-          onClick={() => {
-            changeSet(s);
-            setView("set");
-          }}
+          className={corner === s ? "active" : ""}
+          onClick={() => changeSet(s)}
         >
           {SETS[s].icon} {SETS[s].label}
         </button>
       ))}
-      <button className={view === "study" ? "active" : ""} onClick={() => setView("study")}>
+      <button className={corner === "study" ? "active" : ""} onClick={openStudy}>
         ⏱️ 学習時間
       </button>
     </div>
   );
 
-  if (view === "study") {
+  if (!ready || !params) return <p className="muted center">読み込み中…</p>;
+  if (corner === "study") {
     return (
       <>
         {corners}
-        <StudyRanking initialTab={studyTab} />
+        <StudyRanking key={studyTab} initialTab={studyTab} />
       </>
     );
   }
 
   if (error) return <p className="error">{error}</p>;
-  if (!players || view === null) return <p className="muted center">読み込み中…</p>;
+  if (!players) return <p className="muted center">読み込み中…</p>;
 
   const tabs = (
     <>

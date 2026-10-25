@@ -1647,6 +1647,57 @@ table.ranking {
   box-shadow: 0 6px 18px rgba(124, 58, 237, 0.25);
 }
 
+.set-switch.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.set-tab.study.active {
+  border-color: #0284c7;
+  background: linear-gradient(135deg, #e0f2fe, #e0e7ff);
+  box-shadow: 0 6px 18px rgba(2, 132, 199, 0.25);
+}
+
+@media (max-width: 520px) {
+  .set-switch.three .set-tab {
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 4px;
+    text-align: center;
+  }
+  .set-switch.three .set-tab-icon {
+    font-size: 24px;
+  }
+  .set-switch.three .set-tab b {
+    font-size: 14px;
+  }
+  .set-switch.three .set-tab small {
+    font-size: 11px;
+  }
+}
+
+/* 学習時間のコーナー */
+[data-set="study"] {
+  --primary: #0284c7;
+  --primary-2: #6366f1;
+  --primary-soft: #e8f4fd;
+  --border: #dbeaf5;
+  --shadow: 0 8px 24px rgba(2, 132, 199, 0.14);
+  --text: #13293d;
+  --muted: #5d7489;
+}
+
+[data-set="study"] body {
+  background: linear-gradient(160deg, #eef8ff 0%, #e6f0ff 40%, #eef2ff 70%, #f0f9ff 100%) fixed;
+}
+
+[data-set="study"] .btn-primary {
+  box-shadow: 0 6px 16px rgba(2, 132, 199, 0.3);
+}
+
+[data-set="study"] .ranking tr.row:hover td {
+  background: #f2f8fd;
+}
+
 /* 習得状況 */
 .mastery-card .mastery-top {
   display: flex;
@@ -1790,11 +1841,6 @@ table.ranking {
     line-height: 2.4;
     white-space: nowrap;
   }
-}
-
-.menu-study {
-  grid-column: 1 / -1;
-  background: linear-gradient(135deg, #0ea5e9, #6366f1);
 }
 
 .big-tabs button.active.study {
