@@ -3,6 +3,7 @@ import { Redis } from "@upstash/redis";
 import fs from "node:fs";
 import path from "node:path";
 import { SET_IDS, type SetId } from "./sets";
+import { applyStudyPatch, toStudyLog, type StudyLog, type StudyPatch } from "./study";
 import { MASTERY_GOAL, MASTERY_POINTS, type Mastery, type TestResult, type User } from "./types";
 
 // 1人分の習熟データ：問題番号 → [習熟ポイント, 要復習(1/0)]。a は同じ解答を二重に反映しないための最近の送信ID
@@ -44,6 +45,8 @@ export type Dump = {
   exportedAt: string;
   users: Record<string, User>;
   records: { set: SetId; kind: Kind; data: Record<string, unknown> }[];
+  // 学習時間の記録（番号 → 記録）。この項目がない以前のファイルも読み込める
+  study?: Record<string, StudyLog>;
 };
 
 export type ImportCount = { users: number; records: number };
@@ -64,18 +67,23 @@ interface Store {
   // 管理者パスワード（ハッシュ）。setAdminSecret はまだ設定されていないときだけ保存して true
   getAdminSecret(): Promise<string | null>;
   setAdminSecret(secret: string): Promise<boolean>;
+  // 学習時間の記録：全員分の読み出しと、1人分の更新（更新後の記録を返す）
+  getStudy(): Promise<Record<number, StudyLog>>;
+  updateStudy(number: number, patch: StudyPatch): Promise<StudyLog>;
 }
 
 const KEEP_ATTEMPTS = 20;
 
-function makeDump(users: Record<string, User>, records: Dump["records"]): Dump {
-  return { app: "eijukugo", version: 1, exportedAt: new Date().toISOString(), users, records };
+function makeDump(users: Record<string, User>, records: Dump["records"], study: Record<string, StudyLog>): Dump {
+  return { app: "eijukugo", version: 1, exportedAt: new Date().toISOString(), users, records, study };
 }
 
 function countDump(dump: Dump): ImportCount {
   return {
     users: Object.keys(dump.users).length,
-    records: dump.records.reduce((s, r) => s + Object.values(r.data).filter((v) => v !== null).length, 0),
+    records:
+      dump.records.reduce((s, r) => s + Object.values(r.data).filter((v) => v !== null).length, 0) +
+      Object.keys(dump.study ?? {}).length,
   };
 }
 
@@ -173,6 +181,7 @@ function toNumberRecord(obj: Record<string, unknown> | null | undefined): Record
 
 const USERS_KEY = "eijukugo:users";
 const ADMIN_KEY = "eijukugo:admin";
+const STUDY_KEY = "eijukugo:study";
 const MIGRATED_KEY = "eijukugo:v2:migrated";
 // 英熟語は以前からのキーをそのまま使い、英単語は別のキーに保存する
 function redisKey(set: SetId, kind: Kind): string | null {
@@ -332,7 +341,11 @@ class RedisStore implements Store {
       kind: item.kind,
       data: Object.fromEntries(Object.entries(hashes[i] ?? {}).map(([n, v]) => [n, parse(v, null)])),
     }));
-    return makeDump(Object.fromEntries(Object.entries(users ?? {}).map(([n, v]) => [n, parse<User>(v, {} as User)])), records);
+    return makeDump(
+      Object.fromEntries(Object.entries(users ?? {}).map(([n, v]) => [n, parse<User>(v, {} as User)])),
+      records,
+      await this.getStudy(),
+    );
   }
 
   async importData(dump: Dump) {
@@ -348,6 +361,8 @@ class RedisStore implements Store {
       );
       if (key && Object.keys(data).length) p.hset(key, data);
     }
+    const study = Object.fromEntries(Object.entries(dump.study ?? {}).map(([n, v]) => [n, JSON.stringify(toStudyLog(v))]));
+    if (Object.keys(study).length) p.hset(STUDY_KEY, study);
     await p.exec();
     return countDump(dump);
   }
@@ -358,6 +373,20 @@ class RedisStore implements Store {
 
   async setAdminSecret(secret: string) {
     return (await this.redis.set(ADMIN_KEY, secret, { nx: true })) === "OK";
+  }
+
+  async getStudy() {
+    const all = await this.redis.hgetall<Record<string, unknown>>(STUDY_KEY);
+    const out: Record<number, StudyLog> = {};
+    for (const [n, v] of Object.entries(all ?? {})) out[Number(n)] = toStudyLog(parse<unknown>(v, null));
+    return out;
+  }
+
+  async updateStudy(number: number, patch: StudyPatch) {
+    const f = String(number);
+    const next = applyStudyPatch(toStudyLog(parse<unknown>(await this.redis.hget(STUDY_KEY, f), null)), patch);
+    await this.redis.hset(STUDY_KEY, { [f]: JSON.stringify(next) });
+    return next;
   }
 }
 
@@ -380,10 +409,12 @@ const D1_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS users (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
   "CREATE TABLE IF NOT EXISTS records (set_id TEXT NOT NULL, kind TEXT NOT NULL, number INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (set_id, kind, number))",
   "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS study (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
 ];
 const UPSERT_RECORD =
   "INSERT INTO records (set_id, kind, number, data) VALUES (?, ?, ?, ?) ON CONFLICT (set_id, kind, number) DO UPDATE SET data = excluded.data";
 const UPSERT_USER = "INSERT INTO users (number, data) VALUES (?, ?) ON CONFLICT (number) DO UPDATE SET data = excluded.data";
+const UPSERT_STUDY = "INSERT INTO study (number, data) VALUES (?, ?) ON CONFLICT (number) DO UPDATE SET data = excluded.data";
 
 class D1Store implements Store {
   readonly persistent = true;
@@ -497,7 +528,11 @@ class D1Store implements Store {
       if (!groups.has(k)) groups.set(k, { set: r.set_id, kind: r.kind, data: {} });
       groups.get(k)!.data[r.number] = JSON.parse(r.data);
     }
-    return makeDump(Object.fromEntries(users.results.map((u) => [u.number, JSON.parse(u.data) as User])), [...groups.values()]);
+    return makeDump(
+      Object.fromEntries(users.results.map((u) => [u.number, JSON.parse(u.data) as User])),
+      [...groups.values()],
+      await this.getStudy(),
+    );
   }
 
   async importData(dump: Dump) {
@@ -508,6 +543,9 @@ class D1Store implements Store {
       for (const [n, v] of Object.entries(r.data)) {
         if (v !== null) statements.push(this.db.prepare(UPSERT_RECORD).bind(r.set, r.kind, Number(n), JSON.stringify(v)));
       }
+    }
+    for (const [n, v] of Object.entries(dump.study ?? {})) {
+      statements.push(this.db.prepare(UPSERT_STUDY).bind(Number(n), JSON.stringify(toStudyLog(v))));
     }
     for (let i = 0; i < statements.length; i += 50) await this.db.batch(statements.slice(i, i + 50));
     return countDump(dump);
@@ -524,6 +562,20 @@ class D1Store implements Store {
     const res = await this.db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('admin', ?)").bind(secret).run();
     return res.meta.changes === 1;
   }
+
+  async getStudy() {
+    await this.init();
+    const { results } = await this.db.prepare("SELECT number, data FROM study").all<{ number: number; data: string }>();
+    return Object.fromEntries(results.map((r) => [r.number, toStudyLog(JSON.parse(r.data))]));
+  }
+
+  async updateStudy(number: number, patch: StudyPatch) {
+    await this.init();
+    const row = await this.db.prepare("SELECT data FROM study WHERE number = ?").bind(number).first<{ data: string }>();
+    const next = applyStudyPatch(toStudyLog(row ? JSON.parse(row.data) : null), patch);
+    await this.db.prepare(UPSERT_STUDY).bind(number, JSON.stringify(next)).run();
+    return next;
+  }
 }
 
 // ---------- ローカル開発用（.data/db.json に保存） ----------
@@ -534,6 +586,7 @@ type Db = {
   users: Record<string, User>;
   sets: Partial<Record<SetId, SetData>>;
   admin?: string;
+  study?: Record<string, StudyLog>;
   // 以前の形式（英熟語のみ）
   results?: Record<string, TestResult[]>;
   practice?: Record<string, Record<string, number>>;
@@ -638,7 +691,7 @@ class LocalStore implements Store {
     for (const [set, d] of Object.entries(this.db.sets) as [SetId, SetData][]) {
       for (const [kind, data] of Object.entries(d) as [Kind, Record<string, unknown>][]) records.push({ set, kind, data });
     }
-    return makeDump(this.db.users, records);
+    return makeDump(this.db.users, records, this.db.study ?? {});
   }
 
   async importData(dump: Dump) {
@@ -646,6 +699,7 @@ class LocalStore implements Store {
     for (const r of dump.records) {
       for (const [n, v] of Object.entries(r.data)) if (v !== null) this.table(r.set, r.kind)[n] = v;
     }
+    for (const [n, v] of Object.entries(dump.study ?? {})) (this.db.study ??= {})[n] = toStudyLog(v);
     this.save();
     return countDump(dump);
   }
@@ -659,6 +713,19 @@ class LocalStore implements Store {
     this.db.admin = secret;
     this.save();
     return true;
+  }
+
+  async getStudy() {
+    const out: Record<number, StudyLog> = {};
+    for (const [n, v] of Object.entries(this.db.study ?? {})) out[Number(n)] = toStudyLog(v);
+    return out;
+  }
+
+  async updateStudy(number: number, patch: StudyPatch) {
+    const next = applyStudyPatch(toStudyLog(this.db.study?.[number]), patch);
+    (this.db.study ??= {})[number] = next;
+    this.save();
+    return next;
   }
 }
 

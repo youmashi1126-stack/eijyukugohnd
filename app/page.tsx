@@ -175,6 +175,11 @@ function Welcome({ me, set, total, onSwitch }: { me: Player; set: SetId; total: 
           <div className="menu-title">ランキング</div>
           <div className="menu-sub">参加者 {total}人の平均点ランキングを見る</div>
         </Link>
+        <Link href="/study" className="menu-card menu-study">
+          <div className="menu-icon">⏱️</div>
+          <div className="menu-title">学習時間記録</div>
+          <div className="menu-sub">毎日の学習時間と振り返りを記録・週の目標を設定</div>
+        </Link>
       </div>
 
       {recent.length > 0 && (

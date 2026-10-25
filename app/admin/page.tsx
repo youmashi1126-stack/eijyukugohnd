@@ -144,7 +144,7 @@ export default function AdminPage() {
 
           <div className="card">
             <h2>⬇️ データをダウンロード</h2>
-            <p className="muted">登録者・テスト結果・練習の記録・習熟ポイントを、1つのファイル（JSON）に保存します。</p>
+            <p className="muted">登録者・テスト結果・練習の記録・習熟ポイント・学習時間を、1つのファイル（JSON）に保存します。</p>
             <div className="btn-row">
               <button className="btn btn-primary" disabled={busy || !password} onClick={download}>
                 ダウンロード

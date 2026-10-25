@@ -32,6 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/practice">📚 練習</Link>
               <Link href="/test?mode=review">🔁 復習</Link>
               <Link href="/ranking">🏆 ランキング</Link>
+              <Link href="/study">⏱️ 学習時間</Link>
             </nav>
             <SoundControls />
           </header>
