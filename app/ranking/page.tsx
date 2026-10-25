@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Fragment, useEffect, useState } from "react";
 import { formatDate, formatDuration, loadMyNumber } from "@/lib/me";
 import { titleFor } from "@/lib/titles";
@@ -15,6 +14,7 @@ import {
   type Player,
 } from "@/lib/types";
 import { useSet } from "../SetContext";
+import StudyRanking from "../study/StudyRanking";
 
 // その日の最高点ランキング：選んだ日（日本時間）の本番テストで、1人ずつ最高点を並べる
 function DailyRanking({ players, myNumber, set }: { players: Player[]; myNumber: number | null; set: SetId }) {
@@ -220,18 +220,31 @@ function rankLabel(rank: number | null) {
 }
 
 export default function RankingPage() {
-  const { set, ready, changeSet } = useSet();
+  const { set, corner, ready, changeSet, openStudy } = useSet();
   const [players, setPlayers] = useState<Player[] | null>(null);
   const [error, setError] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("average");
   const [open, setOpen] = useState<number | null>(null);
   const [myNumber, setMyNumber] = useState<number | null>(null);
   const [tab, setTab] = useState<"test" | "daily" | "practice">("test");
+  const [studyTab, setStudyTab] = useState<"daily" | "weekly">("daily");
+  const [params, setParams] = useState<URLSearchParams | null>(null);
 
   useEffect(() => {
-    const t = new URLSearchParams(window.location.search).get("tab");
-    if (t === "practice" || t === "daily") setTab(t);
+    setParams(new URLSearchParams(window.location.search));
   }, []);
+
+  // ?view=study は学習時間のコーナー、?tab= は最初に開くタブ
+  useEffect(() => {
+    if (!ready || !params) return;
+    const t = params.get("tab");
+    if (params.get("view") === "study") {
+      if (t === "weekly") setStudyTab("weekly");
+      openStudy();
+    } else if (t === "practice" || t === "daily") {
+      setTab(t);
+    }
+  }, [ready, params, openStudy]);
 
   useEffect(() => {
     if (!ready) return;
@@ -243,18 +256,40 @@ export default function RankingPage() {
       .catch(() => setError("データを読み込めませんでした。再読み込みしてください。"));
   }, [set, ready]);
 
+  // 英単語・英熟語・学習時間のコーナー切り替え
+  const corners = (
+    <div className="sort-tabs" style={{ justifyContent: "center" }}>
+      {(["word", "idiom"] as SetId[]).map((s) => (
+        <button
+          key={s}
+          className={corner === s ? "active" : ""}
+          onClick={() => changeSet(s)}
+        >
+          {SETS[s].icon} {SETS[s].label}
+        </button>
+      ))}
+      <button className={corner === "study" ? "active" : ""} onClick={openStudy}>
+        ⏱️ 学習時間
+      </button>
+    </div>
+  );
+
+  if (!ready || !params) return <p className="muted center">読み込み中…</p>;
+  if (corner === "study") {
+    return (
+      <>
+        {corners}
+        <StudyRanking key={studyTab} initialTab={studyTab} />
+      </>
+    );
+  }
+
   if (error) return <p className="error">{error}</p>;
   if (!players) return <p className="muted center">読み込み中…</p>;
 
   const tabs = (
     <>
-      <div className="sort-tabs" style={{ justifyContent: "center" }}>
-        {(["word", "idiom"] as SetId[]).map((s) => (
-          <button key={s} className={set === s ? "active" : ""} onClick={() => changeSet(s)}>
-            {SETS[s].icon} {SETS[s].label}
-          </button>
-        ))}
-      </div>
+      {corners}
       <div className="big-tabs three">
         <button className={tab === "test" ? "active" : ""} onClick={() => setTab("test")}>
           🚀 平均点
@@ -266,9 +301,6 @@ export default function RankingPage() {
           📚 練習
         </button>
       </div>
-      <p className="center study-link">
-        <Link href="/study/ranking">⏱️ 学習時間のランキングはこちら ›</Link>
-      </p>
     </>
   );
 
