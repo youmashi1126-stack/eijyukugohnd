@@ -104,7 +104,7 @@ function Welcome({ me, set, total, onSwitch }: { me: Player; set: SetId; total: 
           {greeting()}、{me.nickname}！
         </h1>
         <p className="muted" style={{ margin: 0 }}>
-          {set === "word" ? "システム英単語" : "ターゲット英熟語"}
+          {info.source}
           {info.total.toLocaleString()}問からランダム100問。今日も1回チャレンジしよう💪
         </p>
         <div className="stats">
@@ -165,7 +165,7 @@ function Welcome({ me, set, total, onSwitch }: { me: Player; set: SetId; total: 
             <div className="menu-title">復習コーナー</div>
             <div className="menu-sub">
               復習すべき{info.unit} あと {me.reviewCount}
-              {set === "word" ? "語" : "問"}
+              {set === "idiom" ? "問" : "語"}
             </div>
           </Link>
         ) : (
@@ -243,7 +243,7 @@ function Register({ players, onDone }: { players: Player[]; onDone: (n: number) 
       <div className="card hero">
         <h1>⚡ 英語チャレンジへようこそ！</h1>
         <p className="muted" style={{ margin: 0 }}>
-          システム英単語2032問・ターゲット英熟語1000問からランダム100問の3択テスト。発音つきで、間違えた問題は復習コーナーで攻略できます。
+          システム英単語2032問・ターゲット英熟語1000問・中学英語1357問からランダム100問の3択テスト。発音つきで、間違えた問題は復習コーナーで攻略できます。
         </p>
       </div>
       <div className="card">

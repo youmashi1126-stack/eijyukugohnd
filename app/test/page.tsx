@@ -369,7 +369,7 @@ function TestRunner() {
         <p style={{ margin: "12px 0 0", fontWeight: 800 }}>現在の復習対象：残り</p>
         <div className="big-number">
           {reviewRemaining}
-          <small style={{ fontSize: 22 }}> {set === "word" ? "語" : "問"}</small>
+          <small style={{ fontSize: 22 }}> {set === "idiom" ? "問" : "語"}</small>
         </div>
         <ul className="rule-list">
           <li>

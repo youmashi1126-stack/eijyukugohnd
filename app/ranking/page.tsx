@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { formatDate, formatDuration, loadMyNumber } from "@/lib/me";
 import { titleFor } from "@/lib/titles";
-import { SETS, type SetId } from "@/lib/sets";
+import { SET_IDS, SETS, type SetId } from "@/lib/sets";
 import {
   comparePractice,
   jstDate,
@@ -258,8 +258,8 @@ export default function RankingPage() {
 
   // 英単語・英熟語・学習時間のコーナー切り替え
   const corners = (
-    <div className="sort-tabs" style={{ justifyContent: "center" }}>
-      {(["word", "idiom"] as SetId[]).map((s) => (
+    <div className="sort-tabs corner-tabs">
+      {SET_IDS.map((s) => (
         <button
           key={s}
           className={corner === s ? "active" : ""}

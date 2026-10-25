@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { parseSet, SETS, type SetId } from "@/lib/sets";
+import { parseSet, SET_IDS, SETS, type SetId } from "@/lib/sets";
 
-// コーナーの切り替え：英単語モード / 英熟語モード / 学習時間。端末に記憶し、<html data-set> でテーマカラーを切り替える
-// set は英単語・英熟語のどちらか（学習時間のコーナーにいる間も、最後に選んだほうを覚えておく）
+// コーナーの切り替え：英単語モード / 英熟語モード / 中学英語モード / 学習時間。端末に記憶し、<html data-set> でテーマカラーを切り替える
+// set は英単語・英熟語・中学英語のどれか（学習時間のコーナーにいる間も、最後に選んだものを覚えておく）
 const KEY = "eijukugo:set";
 const CORNER_KEY = "eijukugo:corner";
 
@@ -58,7 +58,7 @@ export function useSet() {
 }
 
 // 画面の描画前にテーマを当てる（読み込み時に色がちらつかないように）
-export const setThemeScript = `try{document.documentElement.dataset.set=localStorage.getItem("${CORNER_KEY}")==="study"?"study":localStorage.getItem("${KEY}")==="word"?"word":"idiom"}catch(e){}`;
+export const setThemeScript = `try{document.documentElement.dataset.set=localStorage.getItem("${CORNER_KEY}")==="study"?"study":["word","jhs"].indexOf(localStorage.getItem("${KEY}"))>=0?localStorage.getItem("${KEY}"):"idiom"}catch(e){}`;
 
 const STUDY = { icon: "⏱️", label: "学習時間" };
 
@@ -73,7 +73,7 @@ export function SetBadge() {
   );
 }
 
-// ヘッダーのメニュー。練習・復習は英単語・英熟語のコーナーだけ
+// ヘッダーのメニュー。練習・復習は英単語・英熟語・中学英語のコーナーだけ
 export function SiteNav() {
   const { corner } = useSet();
   return (
@@ -94,8 +94,8 @@ export function SiteNav() {
 export function SetSwitch() {
   const { corner, changeSet, openStudy } = useSet();
   return (
-    <div className="set-switch three" role="tablist" aria-label="コーナー切り替え">
-      {(["word", "idiom"] as SetId[]).map((s) => (
+    <div className="set-switch four" role="tablist" aria-label="コーナー切り替え">
+      {SET_IDS.map((s) => (
         <button key={s} role="tab" aria-selected={corner === s} className={`set-tab ${s} ${corner === s ? "active" : ""}`} onClick={() => changeSet(s)}>
           <span className="set-tab-icon">{SETS[s].icon}</span>
           <span>
