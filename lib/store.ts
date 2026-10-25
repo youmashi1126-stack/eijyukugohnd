@@ -183,10 +183,10 @@ const USERS_KEY = "eijukugo:users";
 const ADMIN_KEY = "eijukugo:admin";
 const STUDY_KEY = "eijukugo:study";
 const MIGRATED_KEY = "eijukugo:v2:migrated";
-// 英熟語は以前からのキーをそのまま使い、英単語は別のキーに保存する
+// 英熟語は以前からのキーをそのまま使い、英単語・中学英語は別のキーに保存する
 function redisKey(set: SetId, kind: Kind): string | null {
   if (kind === "wrong") return set === "idiom" ? "eijukugo:v2:wrong" : null;
-  return `${set === "idiom" ? "eijukugo:v2:" : "eijukugo:v2:word:"}${kind}`;
+  return `${set === "idiom" ? "eijukugo:v2:" : `eijukugo:v2:${set}:`}${kind}`;
 }
 // 最初の形式（利用者ごとのキー）
 const oldResultsKey = (n: number) => `eijukugo:results:${n}`;

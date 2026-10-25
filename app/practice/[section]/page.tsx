@@ -83,7 +83,7 @@ export default function SectionPage() {
         </h1>
         <p className="muted" style={{ margin: 0 }}>
           {from && `No.${from}〜${to}・${items?.length}問。`}
-          {set === "word" ? "単語をタップすると発音が聞けます。" : "単語をタップすると発音と例文が出ます。"}
+          {set === "idiom" ? "単語をタップすると発音と例文が出ます。" : "単語をタップすると発音が聞けます。"}
           {best !== undefined ? ` 自己ベスト ${best}/${PRACTICE_QUESTION_COUNT}点` : " まだ挑戦していません"}
         </p>
         <div className="btn-row">

@@ -2,8 +2,9 @@ import idiomRaw from "@/data/idioms.json";
 import { WORDS_1 } from "@/data/words1";
 import { WORDS_2 } from "@/data/words2";
 import { WORDS_3 } from "@/data/words3";
+import { JHS } from "@/data/jhs";
 import { getExample } from "./examples";
-import type { SetId } from "./sets";
+import { SETS, type SetId } from "./sets";
 import { SECTION_SIZE, type Question } from "./types";
 
 // 出題データ（英熟語・英単語）を同じ形で扱う
@@ -76,10 +77,10 @@ function idiomDataset(): Dataset {
   };
 }
 
-// ---------- 英単語：データにある3択をそのまま使う（並び順だけ毎回シャッフル） ----------
+// ---------- 英単語・中学英語：データにある3択をそのまま使う（並び順だけ毎回シャッフル） ----------
 
-function wordDataset(): Dataset {
-  const rows = [WORDS_1, WORDS_2, WORDS_3]
+function choiceDataset(parts: string[]): Dataset {
+  const rows = parts
     .join("\n")
     .trim()
     .split("\n")
@@ -109,12 +110,14 @@ function wordDataset(): Dataset {
 const cache: Partial<Record<SetId, Dataset>> = {};
 
 export function dataset(set: SetId): Dataset {
-  return (cache[set] ??= set === "word" ? wordDataset() : idiomDataset());
+  return (cache[set] ??=
+    set === "word" ? choiceDataset([WORDS_1, WORDS_2, WORDS_3]) : set === "jhs" ? choiceDataset([JHS]) : idiomDataset());
 }
 
-// 練習モードのセクション（データの並び順に50問ずつ）
+// 練習モードのセクション（データの並び順に50問ずつ。最後のセクションは残りすべて）
 export function sectionItems(set: SetId, section: number): Item[] {
-  return dataset(set).items.slice((section - 1) * SECTION_SIZE, section * SECTION_SIZE);
+  const end = section === SETS[set].sections ? undefined : section * SECTION_SIZE;
+  return dataset(set).items.slice((section - 1) * SECTION_SIZE, end);
 }
 
 // 全問（復習・練習なら指定した問題）からランダムに limit 問を選んで3択問題にする

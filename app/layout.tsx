@@ -9,7 +9,7 @@ const rounded = M_PLUS_Rounded_1c({ weight: ["400", "700", "800"], subsets: ["la
 
 export const metadata: Metadata = {
   title: "英単語・英熟語チャレンジ｜朝学習",
-  description: "システム英単語2032問・ターゲット英熟語1000問の3択テスト",
+  description: "システム英単語2032問・ターゲット英熟語1000問・中学英語1357問の3択テスト",
 };
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#7c3aed" };

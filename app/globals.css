@@ -1585,6 +1585,53 @@ table.ranking {
   background: #f3fbf7;
 }
 
+/* 中学英語モード（オレンジ） */
+[data-set="jhs"] {
+  --primary: #ea580c;
+  --primary-2: #e11d48;
+  --primary-soft: #fff1e6;
+  --border: #f6e3d4;
+  --shadow: 0 8px 24px rgba(234, 88, 12, 0.14);
+  --text: #3b2416;
+  --muted: #8a6a58;
+}
+
+[data-set="jhs"] body {
+  background: linear-gradient(160deg, #fff7ed 0%, #ffedd5 40%, #fef3c7 70%, #fff1f2 100%) fixed;
+}
+
+[data-set="jhs"] .hero {
+  background: linear-gradient(135deg, #c2410c 0%, #f97316 55%, #fbbf24 100%);
+}
+
+[data-set="jhs"] .practice-hero {
+  background: linear-gradient(135deg, #e11d48 0%, #f97316 55%, #facc15 100%);
+}
+
+[data-set="jhs"] .progress > div {
+  background: linear-gradient(90deg, #facc15, #fb923c, #ea580c, #e11d48);
+  background-size: 300% 100%;
+}
+
+[data-set="jhs"] .menu-test {
+  background: linear-gradient(135deg, #ea580c, #f97316);
+}
+
+[data-set="jhs"] .menu-practice {
+  background: linear-gradient(135deg, #e11d48, #fb7185);
+}
+
+[data-set="jhs"] .btn-primary {
+  box-shadow: 0 6px 16px rgba(234, 88, 12, 0.3);
+}
+
+[data-set="jhs"] .ranking tr.row:hover td,
+[data-set="jhs"] .history-row td,
+[data-set="jhs"] .race-row,
+[data-set="jhs"] .number-cell.taken {
+  background: #fff7f0;
+}
+
 /* ヘッダーのモード表示 */
 .set-badge {
   padding: 3px 12px;
@@ -1647,8 +1694,21 @@ table.ranking {
   box-shadow: 0 6px 18px rgba(124, 58, 237, 0.25);
 }
 
-.set-switch.three {
-  grid-template-columns: repeat(3, 1fr);
+.set-switch.four {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.set-switch.four .set-tab {
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 6px;
+  text-align: center;
+}
+
+.set-tab.jhs.active {
+  border-color: #ea580c;
+  background: linear-gradient(135deg, #ffedd5, #fef3c7);
+  box-shadow: 0 6px 18px rgba(234, 88, 12, 0.25);
 }
 
 .set-tab.study.active {
@@ -1658,20 +1718,22 @@ table.ranking {
 }
 
 @media (max-width: 520px) {
-  .set-switch.three .set-tab {
-    flex-direction: column;
-    gap: 2px;
-    padding: 8px 4px;
-    text-align: center;
+  .set-switch.four {
+    gap: 6px;
   }
-  .set-switch.three .set-tab-icon {
-    font-size: 24px;
+  .set-switch.four .set-tab {
+    padding: 8px 2px;
+    border-radius: 14px;
   }
-  .set-switch.three .set-tab b {
-    font-size: 14px;
+  .set-switch.four .set-tab-icon {
+    font-size: 22px;
   }
-  .set-switch.three .set-tab small {
-    font-size: 11px;
+  .set-switch.four .set-tab b {
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .set-switch.four .set-tab small {
+    font-size: 10px;
   }
 }
 
@@ -2121,5 +2183,22 @@ table.ranking {
 @media (max-width: 520px) {
   .week-title {
     font-size: 14px;
+  }
+}
+
+/* ランキング上部のコーナー切り替え（英単語・英熟語・中学英語・学習時間） */
+.sort-tabs.corner-tabs {
+  justify-content: center;
+}
+
+@media (max-width: 520px) {
+  .sort-tabs.corner-tabs {
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+  .sort-tabs.corner-tabs button {
+    padding: 5px 8px;
+    font-size: 12px;
+    white-space: nowrap;
   }
 }
