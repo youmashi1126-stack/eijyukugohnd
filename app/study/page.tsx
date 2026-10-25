@@ -296,7 +296,7 @@ export default function StudyPage() {
       </div>
 
       <p className="center">
-        <Link href="/study/ranking" className="btn btn-primary">
+        <Link href="/ranking?view=study" className="btn btn-primary">
           🏆 学習時間ランキングを見る
         </Link>
       </p>

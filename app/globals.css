@@ -1801,12 +1801,6 @@ table.ranking {
   background: linear-gradient(135deg, #6366f1, #a855f7);
 }
 
-.study-link {
-  margin: -4px 0 14px;
-  font-weight: 800;
-  font-size: 14px;
-}
-
 .week-nav {
   display: flex;
   align-items: center;
