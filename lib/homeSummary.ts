@@ -21,7 +21,7 @@ export async function loadHomeData(only?: number): Promise<HomeData> {
   const store = getStore();
   const [players, study, materials, pastExams] = await Promise.all([
     Promise.all(SET_IDS.map(async (set) => [set, await getPlayers(set)] as const)).then((e) => Object.fromEntries(e) as Record<SetId, Player[]>),
-    store.getStudy(),
+    only === undefined ? store.getStudy() : store.getStudyOf(only).then((l) => ({ [only]: l })),
     only === undefined ? store.getMaterials() : store.getMaterialsOf(only).then((m) => ({ [only]: m })),
     only === undefined ? store.getPastExams() : store.getPastExamsOf(only).then((p) => ({ [only]: p })),
   ]);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Accounts from "./Accounts";
 
 // 管理者ページ：データのバックアップ（ファイルに保存）と読み込み（アップロード）
@@ -37,6 +37,8 @@ export default function AdminPage() {
   const [status, setStatus] = useState<Status | null>(null);
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
+  // 各アカウントの状況：1人分の学習時間・学習教材・過去問
+  const loadAccount = useCallback((number: number) => post({ action: "account", password, number }), [password]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -223,6 +225,7 @@ export default function AdminPage() {
               if (!password) throw new Error("先に管理者パスワードを入力してください");
               return post({ action: "accounts", password });
             }}
+            loadOne={loadAccount}
           />
 
           <div className="card">

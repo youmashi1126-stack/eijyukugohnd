@@ -120,6 +120,7 @@ interface Store {
   replaceAdminSecret(secret: string): Promise<void>;
   // 学習時間の記録：全員分の読み出しと、1人分の更新（更新後の記録を返す）
   getStudy(): Promise<Record<number, StudyLog>>;
+  getStudyOf(number: number): Promise<StudyLog>;
   updateStudy(number: number, patch: StudyPatch): Promise<StudyLog>;
   // 学習教材：全員分の読み出し、1人分の読み出しと保存（一覧ごと置き換える）
   getMaterials(): Promise<Record<number, Material[]>>;
@@ -584,6 +585,11 @@ class RedisStore implements Store {
     return out;
   }
 
+  async getStudyOf(number: number) {
+    await this.migrate();
+    return toStudyLog(parse<unknown>(await this.redis.hget(STUDY_KEY, String(number)), null));
+  }
+
   async updateStudy(number: number, patch: StudyPatch) {
     await this.migrate();
     const f = String(number);
@@ -911,6 +917,12 @@ class D1Store implements Store {
     return Object.fromEntries(results.map((r) => [r.number, toStudyLog(JSON.parse(r.data))]));
   }
 
+  async getStudyOf(number: number) {
+    await this.init();
+    const row = await this.db.prepare("SELECT data FROM study WHERE number = ?").bind(number).first<{ data: string }>();
+    return toStudyLog(row ? JSON.parse(row.data) : null);
+  }
+
   async updateStudy(number: number, patch: StudyPatch) {
     await this.init();
     const row = await this.db.prepare("SELECT data FROM study WHERE number = ?").bind(number).first<{ data: string }>();
@@ -1154,6 +1166,10 @@ class LocalStore implements Store {
     const out: Record<number, StudyLog> = {};
     for (const [n, v] of Object.entries(this.db.study ?? {})) out[Number(n)] = toStudyLog(v);
     return out;
+  }
+
+  async getStudyOf(number: number) {
+    return toStudyLog(this.db.study?.[number]);
   }
 
   async updateStudy(number: number, patch: StudyPatch) {

@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { groupOf, type HomeSummary } from "@/lib/home";
 import { CORNERS, EXTRA, SET_IDS, SETS, type Corner } from "@/lib/sets";
 import { dayLabel, formatMinutes } from "@/lib/study";
-import HomeView from "../HomeView";
+import AccountDetail, { type AccountData } from "./AccountDetail";
 
-type Account = { number: number; summary: HomeSummary | null };
+type Account = { number: number; summary: HomeSummary | null; lastWeek?: { total: number; goal: number | null } | null };
 type Data = { today: string; accounts: Account[] };
 
 const SHORT: Record<Corner, string> = {
@@ -26,7 +26,7 @@ function ago(date: string | null | undefined, today: string) {
 }
 
 // 管理者ページ：各アカウントの状況（見せない設定のコーナーも含む）。行を押すと詳しく
-export default function Accounts({ load }: { load: () => Promise<Data> }) {
+export default function Accounts({ load, loadOne }: { load: () => Promise<Data>; loadOne: (number: number) => Promise<AccountData> }) {
   const [data, setData] = useState<Data | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -62,7 +62,7 @@ export default function Accounts({ load }: { load: () => Promise<Data> }) {
     <div className="card">
       <h2>👀 各アカウントの状況</h2>
       <p className="muted">
-        アカウントごとに、各コーナーの進み具合と最後に記録した日を一覧で確認できます。行を押すと詳しく見られます（生徒が「見せない」にしたコーナーも表示します）。
+        アカウントごとに、各コーナーの進み具合と最後に記録した日を一覧で確認できます。行を押すと、学習時間（過去の週も）・学習教材・過去問の様子を1人ずつ詳しく見られます（生徒が「見せない」にしたコーナーも表示します）。
       </p>
       <div className="btn-row" style={{ marginTop: 0 }}>
         <button className="btn btn-primary" disabled={busy} onClick={refresh}>
@@ -110,6 +110,11 @@ export default function Accounts({ load }: { load: () => Promise<Data> }) {
                     <small>学習時間／目標</small>
                   </th>
                   <th>
+                    ⏱️ 先週
+                    <br />
+                    <small>学習時間／目標</small>
+                  </th>
+                  <th>
                     📒 教材
                     <br />
                     <small>取組中・平均進捗</small>
@@ -123,11 +128,11 @@ export default function Accounts({ load }: { load: () => Promise<Data> }) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ number, summary: s }) =>
+                {rows.map(({ number, summary: s, lastWeek }) =>
                   !s ? (
                     <tr key={number} className="unregistered">
                       <td>{number}</td>
-                      <td className="name muted" colSpan={10}>
+                      <td className="name muted" colSpan={11}>
                         未登録（個人用URLをまだ開いていません）
                       </td>
                     </tr>
@@ -161,6 +166,16 @@ export default function Accounts({ load }: { load: () => Promise<Data> }) {
                           )}
                         </td>
                         <td>
+                          {lastWeek ? (
+                            <>
+                              {formatMinutes(lastWeek.total)}
+                              <small>{lastWeek.goal ? `／${formatMinutes(lastWeek.goal)}` : ""}</small>
+                            </>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td>
                           {s.materials && s.materials.count ? (
                             <>
                               {s.materials.doing}冊<small>・{s.materials.progress === null ? "-" : `${Math.floor(s.materials.progress * 100)}%`}</small>
@@ -187,28 +202,12 @@ export default function Accounts({ load }: { load: () => Promise<Data> }) {
             </table>
           </div>
           {rows.length === 0 && <p className="muted center">表示するアカウントがありません。</p>}
-          <AccountDetail ref={detail} summary={data.accounts.find((a) => a.number === open)?.summary ?? null} onClose={() => setOpen(null)} />
-        </>
-      )}
-    </div>
-  );
-}
-
-// 表の下に出す、1人分の詳しい状況（見せない設定のコーナーには印を付ける）
-function AccountDetail({ ref, summary: s, onClose }: { ref: React.Ref<HTMLDivElement>; summary: HomeSummary | null; onClose: () => void }) {
-  return (
-    <div ref={ref} className="account-detail">
-      {s && (
-        <>
-          <div className="account-detail-head">
-            <b>
-              No.{s.number} {s.nickname} の状況
-            </b>
-            <button className="btn" onClick={onClose}>
-              閉じる
-            </button>
-          </div>
-          <HomeView s={{ ...s, isMe: true }} corners={CORNERS} link={false} detail />
+          <AccountDetail
+            ref={detail}
+            summary={data.accounts.find((a) => a.number === open)?.summary ?? null}
+            load={loadOne}
+            onClose={() => setOpen(null)}
+          />
         </>
       )}
     </div>
