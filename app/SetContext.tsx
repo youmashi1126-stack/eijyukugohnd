@@ -2,24 +2,33 @@
 
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { parseSet, SET_IDS, SETS, type Corner, type SetId } from "@/lib/sets";
+import { EXTRA, EXTRA_CORNERS, isExtraCorner, parseSet, SET_IDS, SETS, type Corner, type ExtraCorner, type SetId } from "@/lib/sets";
 import { useMe } from "./MeContext";
 
-// コーナーの切り替え：英単語モード / 英熟語モード / 中学英語モード / 学習時間。端末に記憶し、<html data-set> でテーマカラーを切り替える
-// set は英単語・英熟語・中学英語のどれか（学習時間のコーナーにいる間も、最後に選んだものを覚えておく）
+// コーナーの切り替え：英単語モード / 英熟語モード / 中学英語モード / 学習時間 / 学習教材。端末に記憶し、<html data-set> でテーマカラーを切り替える
+// set は英単語・英熟語・中学英語のどれか（学習時間・学習教材のコーナーにいる間も、最後に選んだものを覚えておく）
 const KEY = "eijukugo:set";
 const CORNER_KEY = "eijukugo:corner";
 
 export type { Corner };
 
 // visible：マイページで選んだ、表示するコーナー（ホームとランキングの切り替えに出す）
-type Ctx = { set: SetId; corner: Corner; visible: Corner[]; ready: boolean; changeSet: (s: SetId) => void; openStudy: () => void };
+type Ctx = {
+  set: SetId;
+  corner: Corner;
+  visible: Corner[];
+  ready: boolean;
+  changeSet: (s: SetId) => void;
+  openCorner: (c: ExtraCorner) => void;
+  openStudy: () => void;
+};
 const SetContext = createContext<Ctx>({
   set: "idiom",
   corner: "idiom",
   visible: [],
   ready: false,
   changeSet: () => {},
+  openCorner: () => {},
   openStudy: () => {},
 });
 
@@ -32,14 +41,15 @@ export function SetProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let saved: SetId = "idiom";
-    let study = false;
+    let extra: ExtraCorner | null = null;
     try {
       saved = parseSet(localStorage.getItem(KEY));
-      study = localStorage.getItem(CORNER_KEY) === "study";
+      const c = localStorage.getItem(CORNER_KEY);
+      if (isExtraCorner(c)) extra = c;
     } catch {}
     setSet(saved);
-    setCorner(study ? "study" : saved);
-    document.documentElement.dataset.set = study ? "study" : saved;
+    setCorner(extra ?? saved);
+    document.documentElement.dataset.set = extra ?? saved;
     setLoaded(true);
   }, []);
 
@@ -53,26 +63,29 @@ export function SetProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }, []);
 
-  const openStudy = useCallback(() => {
-    setCorner("study");
-    document.documentElement.dataset.set = "study";
+  const openCorner = useCallback((c: ExtraCorner) => {
+    setCorner(c);
+    document.documentElement.dataset.set = c;
     try {
-      localStorage.setItem(CORNER_KEY, "study");
+      localStorage.setItem(CORNER_KEY, c);
     } catch {}
   }, []);
+  const openStudy = useCallback(() => openCorner("study"), [openCorner]);
 
   // 今のコーナーをマイページで非表示にしたときは、表示するコーナーの最初のものに切り替える
   const hidden = loaded && visible.length > 0 && !visible.includes(corner);
   useEffect(() => {
     if (!hidden) return;
     const first = visible[0];
-    if (first === "study") openStudy();
+    if (isExtraCorner(first)) openCorner(first);
     else changeSet(first);
-  }, [hidden, visible, changeSet, openStudy]);
+  }, [hidden, visible, changeSet, openCorner]);
 
   // 個人用URLでログインしていて、表示するコーナーがそろってから画面を出す
   const ready = loaded && status === "ok" && !hidden;
-  return <SetContext.Provider value={{ set, corner, visible, ready, changeSet, openStudy }}>{children}</SetContext.Provider>;
+  return (
+    <SetContext.Provider value={{ set, corner, visible, ready, changeSet, openCorner, openStudy }}>{children}</SetContext.Provider>
+  );
 }
 
 export function useSet() {
@@ -80,9 +93,7 @@ export function useSet() {
 }
 
 // 画面の描画前にテーマを当てる（読み込み時に色がちらつかないように）
-export const setThemeScript = `try{document.documentElement.dataset.set=localStorage.getItem("${CORNER_KEY}")==="study"?"study":["word","jhs"].indexOf(localStorage.getItem("${KEY}"))>=0?localStorage.getItem("${KEY}"):"idiom"}catch(e){}`;
-
-const STUDY = { icon: "⏱️", label: "学習時間" };
+export const setThemeScript = `try{var c=localStorage.getItem("${CORNER_KEY}"),s=localStorage.getItem("${KEY}");document.documentElement.dataset.set=${JSON.stringify(EXTRA_CORNERS)}.indexOf(c)>=0?c:["word","jhs"].indexOf(s)>=0?s:"idiom"}catch(e){}`;
 
 // ヘッダーに今のコーナーを表示（押すとホームでコーナーを切り替えられる）
 export function SetBadge() {
@@ -90,7 +101,7 @@ export function SetBadge() {
   if (!ready) return null;
   return (
     <Link href="/" className="set-badge" title="ホームでコーナーを切り替え">
-      {corner === "study" ? `${STUDY.icon} ${STUDY.label}` : `${SETS[set].icon} ${SETS[set].label}モード`}
+      {isExtraCorner(corner) ? `${EXTRA[corner].icon} ${EXTRA[corner].label}` : `${SETS[set].icon} ${SETS[set].label}モード`}
     </Link>
   );
 }
@@ -102,7 +113,7 @@ export function SiteNav() {
   return (
     <nav className="site-nav">
       <Link href="/">🏠 ホーム</Link>
-      {corner !== "study" && (
+      {!isExtraCorner(corner) && (
         <>
           <Link href="/practice">📚 練習</Link>
           <Link href="/test?mode=review">🔁 復習</Link>
@@ -116,7 +127,7 @@ export function SiteNav() {
 
 // ホーム上部のコーナー切り替え（マイページで選んだコーナーだけ。1つだけなら出さない）
 export function SetSwitch() {
-  const { corner, visible, changeSet, openStudy } = useSet();
+  const { corner, visible, changeSet, openCorner } = useSet();
   if (visible.length <= 1) return null;
   return (
     <div className="set-switch multi" role="tablist" aria-label="コーナー切り替え" style={{ gridTemplateColumns: `repeat(${visible.length}, 1fr)` }}>
@@ -129,20 +140,15 @@ export function SetSwitch() {
           </span>
         </button>
       ))}
-      {visible.includes("study") && (
-      <button
-        role="tab"
-        aria-selected={corner === "study"}
-        className={`set-tab study ${corner === "study" ? "active" : ""}`}
-        onClick={openStudy}
-      >
-        <span className="set-tab-icon">{STUDY.icon}</span>
-        <span>
-          <b>{STUDY.label}</b>
-          <small>記録・目標</small>
-        </span>
-      </button>
-      )}
+      {EXTRA_CORNERS.filter((c) => visible.includes(c)).map((c) => (
+        <button key={c} role="tab" aria-selected={corner === c} className={`set-tab ${c} ${corner === c ? "active" : ""}`} onClick={() => openCorner(c)}>
+          <span className="set-tab-icon">{EXTRA[c].icon}</span>
+          <span>
+            <b>{EXTRA[c].label}</b>
+            <small>{EXTRA[c].sub}</small>
+          </span>
+        </button>
+      ))}
     </div>
   );
 }

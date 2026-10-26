@@ -71,10 +71,35 @@ export default function AdminPage() {
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = `eijukugo-backup-${fileStamp()}.json`;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(a.href);
+      a.remove();
+      // すぐに消すとファイル名が付かないことがあるので、ダウンロードが始まってから消す
+      setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
       const records = (data.records as { data: object }[]).reduce((s, r) => s + Object.keys(r.data).length, 0);
       return `ダウンロードしました（登録者 ${Object.keys(data.users).length}人・記録 ${records}件）。`;
+    });
+
+  // 学習教材の進捗：登録している全員分を、学習教材シートと同じ形の Excel に書き出す
+  const downloadMaterials = () =>
+    run(async () => {
+      const data = await post({ action: "materials", password });
+      const res = await fetch("/templates/materials-template.xlsx");
+      if (!res.ok) throw new Error("Excel のひな形を読み込めませんでした");
+      const { buildMaterialsWorkbook } = await import("@/lib/materialsXlsx");
+      const users = data.users as { number: number }[];
+      const sheets = users.map((u) => ({ number: u.number, items: data.materials[u.number] ?? [] }));
+      const blob = await buildMaterialsWorkbook(await res.arrayBuffer(), sheets);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `eijukugo-materials-${fileStamp()}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // すぐに消すとファイル名が付かないことがあるので、ダウンロードが始まってから消す
+      setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+      const books = sheets.reduce((s, x) => s + x.items.filter((m: { title: string }) => m.title).length, 0);
+      return `ダウンロードしました（${sheets.length}人分のシート・教材 ${books}冊）。`;
     });
 
   const upload = () =>
@@ -144,10 +169,23 @@ export default function AdminPage() {
 
           <div className="card">
             <h2>⬇️ データをダウンロード</h2>
-            <p className="muted">登録者・テスト結果・練習の記録・習熟ポイント・学習時間を、1つのファイル（JSON）に保存します。</p>
+            <p className="muted">登録者・テスト結果・練習の記録・習熟ポイント・学習時間・学習教材を、1つのファイル（JSON）に保存します。</p>
             <div className="btn-row">
               <button className="btn btn-primary" disabled={busy || !password} onClick={download}>
                 ダウンロード
+              </button>
+            </div>
+          </div>
+
+          <div className="card">
+            <h2>📒 学習教材の進捗をダウンロード（Excel）</h2>
+            <p className="muted">
+              登録している全員の学習教材を、学習教材シートと同じ見た目の Excel ファイルに書き出します。1人1シート（シート名は番号）で、
+              残りの量・ペース・進捗・状態は Excel を開いたときに計算されます。
+            </p>
+            <div className="btn-row">
+              <button className="btn btn-primary" disabled={busy || !password} onClick={downloadMaterials}>
+                Excel でダウンロード
               </button>
             </div>
           </div>

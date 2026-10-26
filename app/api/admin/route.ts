@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { hashPassword, isDump, slowDown, verifyPassword } from "@/lib/admin";
 import { getStore, renumberDump } from "@/lib/store";
+import { jstDate } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,7 @@ export async function GET() {
 }
 
 // action：setup（初回のパスワード設定）／export（データの書き出し）／import（ファイルの読み込み）
+//         materials（学習教材の進捗。管理者ページで Excel に書き出す）
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const store = getStore();
@@ -33,6 +35,15 @@ export async function POST(req: Request) {
 
   if (action === "export") {
     return NextResponse.json(await store.exportData());
+  }
+
+  if (action === "materials") {
+    const [users, materials] = await Promise.all([store.getUsers(), store.getMaterials()]);
+    return NextResponse.json({
+      users: users.map((u) => ({ number: u.number, nickname: u.nickname })).sort((a, b) => a.number - b.number),
+      materials,
+      today: jstDate(),
+    });
   }
 
   if (action === "import") {
