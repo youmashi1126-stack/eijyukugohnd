@@ -42,11 +42,11 @@ export type Player = {
   number: number;
   nickname: string;
   count: number;
+  total: number; // 合計点（全体の平均点の計算用）
   average: number | null;
   best: number | null;
   lastAt: string | null;
   rank: number | null;
-  history: TestResult[];
   // 練習モード：セクション番号 → 最高点
   practice: Record<number, number>;
   mastered: number; // 覚えた数

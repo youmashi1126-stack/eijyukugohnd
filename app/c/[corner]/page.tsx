@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { formatDate, loadMyNumber } from "@/lib/me";
 import { SETS, type SetId } from "@/lib/sets";
 import { titleFor } from "@/lib/titles";
-import { MASTERY_GOAL, MASTERY_POINTS, practiceSummary, type Player } from "@/lib/types";
+import { MASTERY_GOAL, MASTERY_POINTS, practiceSummary, type Player, type TestResult } from "@/lib/types";
 import { useParams, useRouter } from "next/navigation";
 import { CORNERS, isExtraCorner, type Corner } from "@/lib/sets";
 import { SetSwitch, useSet } from "../../SetContext";
@@ -91,7 +91,15 @@ function CornerContent() {
 
 function Welcome({ me, set, total }: { me: Player; set: SetId; total: number }) {
   const title = titleFor(me.average);
-  const recent = me.history.slice(-10);
+  const [recent, setRecent] = useState<TestResult[]>([]);
+  // 最近の成績は、本番テストの記録を1人分だけ読む（一覧には記録そのものは入っていない）
+  useEffect(() => {
+    if (!me.count) return;
+    fetch(`/api/players?set=${set}&number=${me.number}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && Array.isArray(d.history) && setRecent(d.history.slice(-10)))
+      .catch(() => {});
+  }, [set, me.number, me.count]);
   const info = SETS[set];
   const percent = Math.round((me.mastered / info.total) * 1000) / 10;
 

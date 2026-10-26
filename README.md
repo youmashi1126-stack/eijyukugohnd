@@ -55,7 +55,7 @@
   済・残り・最新／平均／最高の得点率・目標との差・1週間に必要な年数と、全科目の得点がそろった年度の合計得点率を、Excel のシートと同じ計算で表示
 - **過去問の記録の書き出し**（管理者ページ）：過去問演習シートと同じ見た目の Excel（1人1シート）に書き出す。ひな形は `public/templates/pastexams-template.xlsx`。
   Excel の年度の列は10年分なので、見出しをその人のいちばん新しい年度から10年分に書き換え、それより古い年度は書き出さない（件数を画面に表示）
-- **各アカウントの状況**（管理者ページ）：全アカウントの最後の記録日・各コーナーの進み具合（覚えた割合・テスト回数・今週の学習時間・教材・過去問）と「見せない」設定を一覧で表示。番台で絞り込み、未登録のアカウントも表示できる。行を押すと、その人のホームと同じカードで詳しく見られる（見せない設定のコーナーも表示）
+- **各アカウントの状況**（管理者ページ）：全アカウントの最後の記録日・各コーナーの進み具合（覚えた割合・テスト回数・今週の学習時間・教材・過去問）と「見せない」設定を一覧で表示。番台で絞り込み、未登録のアカウントも表示できる。今週と先週の学習時間も並べて見られる。行を押すと、その人の様子をタブで詳しく見られる（見せない設定のコーナーも表示）：学習時間は週ごとの合計・目標・達成率・曜日ごとの時間と気分・ゴールの振り返り（過去の週もさかのぼれる）、学習教材は1冊ずつの進捗・今いるところ・期限とペース・状態、過去問は大学ごとの試験日までの日数・合計の得点率と科目ごとの進み具合・得点率・年度ごとの得点
 - **ランキング**（モード別）：平均点ランキング／日別最高点ランキング（日付を選んで過去の日も見られる）／練習ランキング
   - 平均点ランキングの行をタップするとその人の全受験結果を表示
 
@@ -67,7 +67,7 @@
 | `app/c/[corner]/page.tsx` | コーナーのページ（英単語・英熟語・中学英語・学習時間・教材・過去問） |
 | `app/friends/` | みんなの学習（一覧・友達のページ） |
 | `app/api/home/route.ts` / `lib/homeSummary.ts` | 1人分の進捗の概要（ほかの人の分は見せないコーナーを除く）／概要を作る処理（ホーム・友達・管理者ページで共通） |
-| `app/admin/Accounts.tsx` | 管理者ページの「各アカウントの状況」 |
+| `app/admin/Accounts.tsx` / `app/admin/AccountDetail.tsx` | 管理者ページの「各アカウントの状況」／1人分の詳しい様子 |
 | `app/u/[token]/route.ts` | 個人用URL。合言葉が正しければ Cookie を保存してホームへ |
 | `app/MeContext.tsx` | ログインしている本人の情報、案内画面・ニックネーム登録 |
 | `app/mypage/page.tsx` | マイページ |
@@ -107,6 +107,15 @@ http://localhost:3000/u/<合言葉> を開きます（合言葉はURLの一覧�
 [OpenNext](https://opennext.js.org/cloudflare) を使って Cloudflare Workers で動かします。
 記録は **Cloudflare D1**（`wrangler.jsonc` の binding `DB`）に保存します。テーブルは初回アクセス時に自動で作られます。
 保存先の優先順は D1 → Upstash Redis（Vercel 版）→ ローカルファイル です。
+
+無料プラン（1回の処理の CPU 時間は10ミリ秒まで）で記録が増えても動くよう、テストを受けるたびに
+回数・合計点・最高点・最後の受験日時（summary）と日ごとの最高点・回数（days）を保存し、
+ホーム・ランキング・友達のページではそれだけを読みます。テストの記録そのもの（results）は、
+ランキングで人を押したときと自分の「最近の成績」で1人分だけ読みます。
+この仕組みより前の記録は、最初にランキングなどを開いたときに1人1回だけ集計して保存します。
+学習時間も同じ考え方で、1人分の記録全体（`study`）とは別に、週ごとの記録（`study_weeks`）と
+目標・最後に記録した日（`study_meta`）を保存し、ランキング・みんなの目標・管理者の一覧では必要な週の分だけを読みます。
+記録画面は本人の記録全体だけを読みます。以前の記録は、最初のアクセスで一度だけ週ごとに分けて保存します（D1）。
 
 ## データのバックアップと読み込み（管理者ページ）
 
@@ -153,9 +162,9 @@ Upstash のコンソール（Vercel の Storage 画面から開けます）の D
 - `eijukugo:users` … 登録者（番号とニックネーム）
 - `eijukugo:study` … 学習時間の記録（D1 では `study` テーブル）
 - 英熟語モード：`eijukugo:v2:results`（受験結果）、`eijukugo:v2:practice`（練習の最高点）、
-  `eijukugo:v2:mastery`（問題ごとの習熟ポイント）、`eijukugo:v2:summary`（覚えた数・復習数）、`eijukugo:v2:wrong`（以前の復習リスト）
-- 英単語モード：`eijukugo:v2:word:results`、`eijukugo:v2:word:practice`、`eijukugo:v2:word:mastery`、`eijukugo:v2:word:summary`
-- 中学英語モード：`eijukugo:v2:jhs:results`、`eijukugo:v2:jhs:practice`、`eijukugo:v2:jhs:mastery`、`eijukugo:v2:jhs:summary`
+  `eijukugo:v2:mastery`（問題ごとの習熟ポイント）、`eijukugo:v2:summary`（覚えた数・復習数・テストの集計）、`eijukugo:v2:days`（日ごとの最高点・回数）、`eijukugo:v2:wrong`（以前の復習リスト）
+- 英単語モード：`eijukugo:v2:word:results`、`eijukugo:v2:word:practice`、`eijukugo:v2:word:mastery`、`eijukugo:v2:word:summary`、`eijukugo:v2:word:days`
+- 中学英語モード：`eijukugo:v2:jhs:results`、`eijukugo:v2:jhs:practice`、`eijukugo:v2:jhs:mastery`、`eijukugo:v2:jhs:summary`、`eijukugo:v2:jhs:days`
 
 Redis の接続情報は `KV_REST_API_URL` / `KV_REST_API_TOKEN`（接頭辞付きでも可）、`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`、
 または Upstash の接続文字列（`REDIS_URL` / `KV_URL`）から自動で読み取ります。

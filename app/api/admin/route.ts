@@ -3,6 +3,7 @@ import { hashPassword, isDump, slowDown, verifyPassword } from "@/lib/admin";
 import { ACCOUNT_NUMBERS } from "@/lib/accounts";
 import { buildSummary, loadHomeData } from "@/lib/homeSummary";
 import { getStore, renumberDump } from "@/lib/store";
+import { addDays, goalFor, weekStart, weekTotal } from "@/lib/study";
 import { jstDate } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,7 @@ export async function GET() {
 // action：setup（初回のパスワード設定）／export（データの書き出し）／import（ファイルの読み込み）
 //         materials（学習教材の進捗）／pastexams（過去問演習の記録）。どちらも管理者ページで Excel に書き出す
 //         accounts（各アカウントの状況。見せない設定のコーナーも含めて返す）
+//         account（1人分の学習時間・学習教材・過去問の記録。行を押したときの詳しい様子）
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const store = getStore();
@@ -55,13 +57,29 @@ export async function POST(req: Request) {
   if (action === "accounts") {
     const [users, data] = await Promise.all([store.getUsers(), loadHomeData()]);
     const byNumber = new Map(users.map((u) => [u.number, u]));
+    const lastWeekStart = addDays(weekStart(data.today), -7);
     return NextResponse.json({
       today: data.today,
       accounts: ACCOUNT_NUMBERS.map((n) => {
         const user = byNumber.get(n);
-        return user ? { number: n, summary: buildSummary(user, data, { isMe: false, showAll: true }) } : { number: n, summary: null };
+        if (!user) return { number: n, summary: null };
+        const log = data.study[n];
+        return {
+          number: n,
+          summary: buildSummary(user, data, { isMe: false, showAll: true }),
+          // 先週の学習時間と目標（一覧で今週と並べて見る）
+          lastWeek: log ? { total: weekTotal(log, lastWeekStart), goal: goalFor(log, lastWeekStart) } : null,
+        };
       }),
     });
+  }
+
+  if (action === "account") {
+    const number = Number(body?.number);
+    const user = Number.isInteger(number) ? await store.getUser(number) : null;
+    if (!user) return NextResponse.json({ error: "未登録のアカウントです" }, { status: 404 });
+    const [study, materials, pastExams] = await Promise.all([store.getStudyOf(number), store.getMaterialsOf(number), store.getPastExamsOf(number)]);
+    return NextResponse.json({ today: jstDate(), number, nickname: user.nickname, study, materials, pastExams });
   }
 
   if (action === "pastexams") {

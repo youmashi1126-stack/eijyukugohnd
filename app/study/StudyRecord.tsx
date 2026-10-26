@@ -51,7 +51,7 @@ export default function StudyRecord() {
   const [saving, setSaving] = useState<Record<string, SaveState>>({});
 
   useEffect(() => {
-    fetch("/api/study", { cache: "no-store" })
+    fetch("/api/study?mine=1", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         const n = loadMyNumber();
