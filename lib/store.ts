@@ -10,13 +10,18 @@ import { MASTERY_GOAL, MASTERY_POINTS, type Mastery, type TestResult, type User 
 
 // 1人分の習熟データ：問題番号 → [習熟ポイント, 要復習(1/0)]。a は同じ解答を二重に反映しないための最近の送信ID
 type MasteryState = { m: Record<string, [number, number]>; a: string[] };
-type Summary = { mastered: number; review: number };
+// 一覧表示用のまとめ：覚えた数・復習数と、本番テストの回数・合計点・最高点・最後の受験日時
+// テストの集計は記録のたびに保存しておき、ランキング・ホームでは全員分の記録そのものを読まずに済むようにする
+// （この仕組みより前に保存したまとめにはテストの集計がない）
+export type TestStats = { count: number; total: number; best: number | null; lastAt: string | null };
+type Summary = { mastered: number; review: number } & Partial<TestStats>;
+// 日ごとの本番テスト：日本時間の日付 → [最高点, 回数]（日別最高点ランキング用）
+type Days = Record<string, [number, number]>;
 
 export type AllData = {
   users: User[];
-  results: Record<number, TestResult[]>;
   practice: Record<number, Record<number, number>>;
-  summary: Record<number, Summary>;
+  summary: Record<number, Summary & TestStats>;
 };
 
 // 1回の解答送信で保存する内容
@@ -36,8 +41,8 @@ export type RecordOutcome = {
   progress: Record<string, Mastery>; // 今回答えた問題の習熟状況
 };
 
-// 保存しているデータの種類（wrong は以前の復習リスト。英熟語のみ）
-export const KINDS = ["results", "practice", "mastery", "summary", "wrong"] as const;
+// 保存しているデータの種類（wrong は以前の復習リスト。英熟語のみ。days は日ごとの最高点と回数）
+export const KINDS = ["results", "practice", "mastery", "summary", "wrong", "days"] as const;
 export type Kind = (typeof KINDS)[number];
 
 // バックアップファイルの中身：登録者と、モード × 種類ごとの「番号 → 値」
@@ -97,7 +102,12 @@ interface Store {
   updateUser(number: number, patch: UserPatch): Promise<User | null>;
   // 番号が未使用なら登録して true、使用済みなら false
   addUser(user: User): Promise<boolean>;
+  // ランキング・ホーム用：登録者と、練習の最高点・覚えた数・テストの集計（テストの記録そのものは読まない）
   getAll(set: SetId): Promise<AllData>;
+  // 1人分の本番テストの全記録
+  getHistory(set: SetId, number: number): Promise<TestResult[]>;
+  // その日（日本時間）に本番テストを受けた人：番号 → [最高点, 回数]
+  getDay(set: SetId, date: string): Promise<Record<number, [number, number]>>;
   getReviewIds(number: number, set: SetId): Promise<string[]>;
   record(number: number, set: SetId, rec: SaveRequest): Promise<RecordOutcome>;
   // バックアップ：全データの書き出しと読み込み（読み込みはファイルにある番号の分だけ上書き）
@@ -158,6 +168,44 @@ function toMasteryState(v: unknown): MasteryState | null {
   return { m: o.m ?? {}, a: Array.isArray(o.a) ? o.a : [] };
 }
 
+// 日本時間の日付（YYYY-MM-DD）。日本は夏時間がないので9時間ずらすだけでよい（toLocaleDateString より軽い）
+function jstDay(iso: string): string {
+  return new Date(Date.parse(iso) + 9 * 3600_000).toISOString().slice(0, 10);
+}
+
+function testStats(history: TestResult[]): TestStats {
+  let total = 0;
+  let best: number | null = null;
+  for (const r of history) {
+    total += r.score;
+    if (best === null || r.score > best) best = r.score;
+  }
+  return { count: history.length, total, best, lastAt: history.length ? history[history.length - 1].at : null };
+}
+
+function addDay(days: Days, r: TestResult): Days {
+  const d = jstDay(r.at);
+  const [best, count] = days[d] ?? [r.score, 0];
+  return { ...days, [d]: [Math.max(best, r.score), count + 1] };
+}
+
+function toDays(history: TestResult[]): Days {
+  const days: Days = {};
+  for (const r of history) {
+    const d = jstDay(r.at);
+    const [best, count] = days[d] ?? [r.score, 0];
+    days[d] = [Math.max(best, r.score), count + 1];
+  }
+  return days;
+}
+
+const hasStats = (s: Summary | undefined): s is Summary & TestStats => typeof s?.count === "number";
+
+// 記録の反映後に保存するまとめ
+function summaryOf(state: MasteryState, history: TestResult[]): Summary & TestStats {
+  return { ...summarize(state), ...testStats(history) };
+}
+
 function summarize(state: MasteryState): Summary {
   let mastered = 0;
   let review = 0;
@@ -173,8 +221,16 @@ function apply(
   history: TestResult[],
   practice: Record<number, number>,
   state: MasteryState,
+  days: Days | null, // まだ保存していなければ null（記録全体から作る）
   rec: SaveRequest,
-): { history: TestResult[]; practice: Record<number, number>; state: MasteryState; outcome: RecordOutcome } {
+): {
+  history: TestResult[];
+  practice: Record<number, number>;
+  state: MasteryState;
+  days: Days | null; // 本番テストの記録が増えたときだけ
+  summary: Summary & TestStats;
+  outcome: RecordOutcome;
+} {
   const m = { ...state.m };
   const duplicate = !!rec.attemptId && state.a.includes(rec.attemptId);
   if (!duplicate) {
@@ -201,8 +257,10 @@ function apply(
   };
 
   let nextHistory = history;
+  let nextDays: Days | null = null;
   if (rec.result && !(rec.result.attemptId && history.some((h) => h.attemptId === rec.result!.attemptId))) {
     nextHistory = [...history, rec.result];
+    nextDays = addDay(days ?? toDays(history), rec.result);
   }
 
   let nextPractice = practice;
@@ -217,11 +275,13 @@ function apply(
     }
     best = nextPractice[section];
   }
-  const sum = summarize(nextState);
+  const sum = summaryOf(nextState, nextHistory);
   return {
     history: nextHistory,
     practice: nextPractice,
     state: nextState,
+    days: nextDays,
+    summary: sum,
     outcome: { remaining: sum.review, mastered: sum.mastered, best, newBest, progress },
   };
 }
@@ -366,22 +426,49 @@ class RedisStore implements Store {
     const legacyKey = redisKey(set, "wrong");
     const p = this.redis.pipeline();
     p.hgetall(USERS_KEY);
-    p.hgetall(redisKey(set, "results")!);
     p.hgetall(redisKey(set, "practice")!);
     p.hgetall(redisKey(set, "summary")!);
     if (legacyKey) p.hgetall(legacyKey);
-    const [users, results, practice, summary, legacy] = await p.exec<(Record<string, unknown> | null)[]>();
+    const [usersRaw, practice, summary, legacy] = await p.exec<(Record<string, unknown> | null)[]>();
+    const users = Object.values(usersRaw ?? {}).map((v) => parse<User>(v, {} as User));
     const sums = byNumber<Summary>(summary, { mastered: 0, review: 0 });
     // 習熟データがまだない人は、以前の復習リストの数を復習数として使う
     for (const [n, v] of Object.entries(byNumber<unknown>(legacy ?? null, null))) {
       if (!sums[Number(n)]) sums[Number(n)] = summarize(fromLegacyWrong(v));
     }
+    // テストの集計がまだない人（この仕組みより前の記録）は、その人の記録から作って保存する（1人1回だけ）
+    const missing = users.map((u) => String(u.number)).filter((f) => !hasStats(sums[Number(f)]));
+    if (missing.length) {
+      const results = (await this.redis.hmget<Record<string, unknown>>(redisKey(set, "results")!, ...missing)) ?? {};
+      const w = this.redis.pipeline();
+      for (const f of missing) {
+        const history = parse<TestResult[]>(results[f], []);
+        const next = { ...(sums[Number(f)] ?? { mastered: 0, review: 0 }), ...testStats(history) };
+        sums[Number(f)] = next;
+        w.hset(redisKey(set, "summary")!, { [f]: JSON.stringify(next) });
+        if (history.length) w.hset(redisKey(set, "days")!, { [f]: JSON.stringify(toDays(history)) });
+      }
+      await w.exec();
+    }
     return {
-      users: Object.values(users ?? {}).map((v) => parse<User>(v, {} as User)),
-      results: byNumber<TestResult[]>(results, []),
+      users,
       practice: byNumber<Record<number, number>>(practice, {}),
-      summary: sums,
+      summary: sums as Record<number, Summary & TestStats>,
     };
+  }
+
+  async getHistory(set: SetId, number: number) {
+    await this.migrate();
+    return parse<TestResult[]>(await this.redis.hget(redisKey(set, "results")!, String(number)), []);
+  }
+
+  async getDay(set: SetId, date: string) {
+    await this.migrate();
+    const out: Record<number, [number, number]> = {};
+    for (const [n, days] of Object.entries(byNumber<Days>(await this.redis.hgetall(redisKey(set, "days")!), {}))) {
+      if (days[date]) out[Number(n)] = days[date];
+    }
+    return out;
   }
 
   private async loadMastery(set: SetId, f: string, masteryRaw: unknown): Promise<MasteryState> {
@@ -408,16 +495,19 @@ class RedisStore implements Store {
     p.hget(redisKey(set, "results")!, f);
     p.hget(redisKey(set, "practice")!, f);
     p.hget(redisKey(set, "mastery")!, f);
-    const [h, pr, ms] = await p.exec<unknown[]>();
+    p.hget(redisKey(set, "days")!, f);
+    const [h, pr, ms, d] = await p.exec<unknown[]>();
     const next = apply(
       parse<TestResult[]>(h, []),
       toNumberRecord(parse<Record<string, unknown>>(pr, {})),
       await this.loadMastery(set, f, ms),
+      parse<Days | null>(d, null),
       rec,
     );
     const q = this.redis.pipeline();
     q.hset(redisKey(set, "mastery")!, { [f]: JSON.stringify(next.state) });
-    q.hset(redisKey(set, "summary")!, { [f]: JSON.stringify(summarize(next.state)) });
+    q.hset(redisKey(set, "summary")!, { [f]: JSON.stringify(next.summary) });
+    if (next.days) q.hset(redisKey(set, "days")!, { [f]: JSON.stringify(next.days) });
     if (rec.result) q.hset(redisKey(set, "results")!, { [f]: JSON.stringify(next.history) });
     if (rec.practice) q.hset(redisKey(set, "practice")!, { [f]: JSON.stringify(next.practice) });
     await q.exec();
@@ -568,6 +658,9 @@ const D1_SCHEMA = [
 ];
 const UPSERT_RECORD =
   "INSERT INTO records (set_id, kind, number, data) VALUES (?, ?, ?, ?) ON CONFLICT (set_id, kind, number) DO UPDATE SET data = excluded.data";
+// テストの集計がまだないまとめだけを置き換える
+const FILL_SUMMARY =
+  "INSERT INTO records (set_id, kind, number, data) VALUES (?, 'summary', ?, ?) ON CONFLICT (set_id, kind, number) DO UPDATE SET data = excluded.data WHERE json_extract(records.data, '$.count') IS NULL";
 const UPSERT_USER = "INSERT INTO users (number, data) VALUES (?, ?) ON CONFLICT (number) DO UPDATE SET data = excluded.data";
 const UPSERT_STUDY = "INSERT INTO study (number, data) VALUES (?, ?) ON CONFLICT (number) DO UPDATE SET data = excluded.data";
 const UPSERT_MATERIALS =
@@ -655,17 +748,62 @@ class D1Store implements Store {
 
   async getAll(set: SetId) {
     const users = await this.getUsers();
-    const out: AllData = { users, results: {}, practice: {}, summary: {} };
+    const practice: AllData["practice"] = {};
+    const summary: Record<number, Summary> = {};
     const legacy: Record<number, unknown> = {};
-    for (const r of await this.rows(set, ["results", "practice", "summary", "wrong"])) {
+    for (const r of await this.rows(set, ["practice", "summary", "wrong"])) {
       const v = JSON.parse(r.data);
-      if (r.kind === "results") out.results[r.number] = v;
-      else if (r.kind === "practice") out.practice[r.number] = toNumberRecord(v);
-      else if (r.kind === "summary") out.summary[r.number] = v;
+      if (r.kind === "practice") practice[r.number] = toNumberRecord(v);
+      else if (r.kind === "summary") summary[r.number] = v;
       else legacy[r.number] = v;
     }
     // 習熟データがまだない人は、以前の復習リストの数を復習数として使う
-    for (const [n, v] of Object.entries(legacy)) out.summary[Number(n)] ??= summarize(fromLegacyWrong(v));
+    for (const [n, v] of Object.entries(legacy)) summary[Number(n)] ??= summarize(fromLegacyWrong(v));
+    const missing = users.map((u) => u.number).filter((n) => !hasStats(summary[n]));
+    if (missing.length) await this.fillStats(set, missing, summary);
+    return { users, practice, summary: summary as AllData["summary"] };
+  }
+
+  // テストの集計がまだない人（この仕組みより前の記録・以前のバックアップから読み込んだ記録）は、
+  // その人の記録から集計と日ごとの最高点を作って保存する（1人1回だけ。そのあとは記録のたびに更新される）
+  private async fillStats(set: SetId, numbers: number[], summary: Record<number, Summary>) {
+    const results: Record<number, TestResult[]> = {};
+    // D1 の1回の問い合わせに渡せる値は100個までなので分けて読む
+    for (let i = 0; i < numbers.length; i += 90) {
+      const chunk = numbers.slice(i, i + 90);
+      const { results: rows } = await this.db
+        .prepare(`SELECT number, data FROM records WHERE set_id = ? AND kind = 'results' AND number IN (${chunk.map(() => "?").join(", ")})`)
+        .bind(set, ...chunk)
+        .all<{ number: number; data: string }>();
+      for (const r of rows) results[r.number] = JSON.parse(r.data);
+    }
+    const statements: D1Stmt[] = [];
+    for (const n of numbers) {
+      const history = results[n] ?? [];
+      const next = { ...(summary[n] ?? { mastered: 0, review: 0 }), ...testStats(history) };
+      summary[n] = next;
+      // 同時に記録された新しいまとめ（集計あり）は上書きしない
+      statements.push(this.db.prepare(FILL_SUMMARY).bind(set, n, JSON.stringify(next)));
+      if (history.length) statements.push(this.db.prepare(UPSERT_RECORD).bind(set, "days", n, JSON.stringify(toDays(history))));
+    }
+    for (let i = 0; i < statements.length; i += 50) await this.db.batch(statements.slice(i, i + 50));
+  }
+
+  async getHistory(set: SetId, number: number) {
+    await this.init();
+    const [row] = await this.rows(set, ["results"], number);
+    return row ? (JSON.parse(row.data) as TestResult[]) : [];
+  }
+
+  async getDay(set: SetId, date: string) {
+    await this.init();
+    // その日の分だけを D1 側で取り出す（日ごとの記録の全体は読み込まない）
+    const { results } = await this.db
+      .prepare("SELECT number, json_extract(data, ?) AS day FROM records WHERE set_id = ? AND kind = 'days'")
+      .bind(`$."${date}"`, set)
+      .all<{ number: number; day: string | null }>();
+    const out: Record<number, [number, number]> = {};
+    for (const r of results) if (r.day) out[r.number] = JSON.parse(r.day);
     return out;
   }
 
@@ -691,13 +829,16 @@ class D1Store implements Store {
     await this.init();
     let history: TestResult[] = [];
     let practice: Record<number, number> = {};
-    for (const r of await this.rows(set, ["results", "practice"], number)) {
+    let days: Days | null = null;
+    for (const r of await this.rows(set, ["results", "practice", "days"], number)) {
       if (r.kind === "results") history = JSON.parse(r.data);
-      else practice = toNumberRecord(JSON.parse(r.data));
+      else if (r.kind === "practice") practice = toNumberRecord(JSON.parse(r.data));
+      else days = JSON.parse(r.data);
     }
-    const next = apply(history, practice, await this.loadMastery(set, number), rec);
+    const next = apply(history, practice, await this.loadMastery(set, number), days, rec);
     const put = (kind: Kind, data: unknown) => this.db.prepare(UPSERT_RECORD).bind(set, kind, number, JSON.stringify(data));
-    const statements = [put("mastery", next.state), put("summary", summarize(next.state))];
+    const statements = [put("mastery", next.state), put("summary", next.summary)];
+    if (next.days) statements.push(put("days", next.days));
     if (rec.result) statements.push(put("results", next.history));
     if (rec.practice) statements.push(put("practice", next.practice));
     await this.db.batch(statements);
@@ -921,17 +1062,33 @@ class LocalStore implements Store {
     return true;
   }
 
+  private history(set: SetId, number: number): TestResult[] {
+    return (this.table(set, "results")[number] as TestResult[]) ?? [];
+  }
+
+  // ローカルではファイル全体を読み込み済みなので、まとめはその場で記録から作る
   async getAll(set: SetId) {
-    const results: Record<number, TestResult[]> = {};
-    const practice: Record<number, Record<number, number>> = {};
-    const summary: Record<number, Summary> = {};
+    const practice: AllData["practice"] = {};
+    const summary: AllData["summary"] = {};
     for (const k of Object.keys(this.db.users)) {
       const n = Number(k);
-      results[n] = (this.table(set, "results")[k] as TestResult[]) ?? [];
       practice[n] = toNumberRecord(this.table(set, "practice")[k] as Record<string, unknown>);
-      summary[n] = summarize(this.mastery(set, n));
+      summary[n] = summaryOf(this.mastery(set, n), this.history(set, n));
     }
-    return { users: Object.values(this.db.users), results, practice, summary };
+    return { users: Object.values(this.db.users), practice, summary };
+  }
+
+  async getHistory(set: SetId, number: number) {
+    return this.history(set, number);
+  }
+
+  async getDay(set: SetId, date: string) {
+    const out: Record<number, [number, number]> = {};
+    for (const k of Object.keys(this.table(set, "results"))) {
+      const day = toDays(this.history(set, Number(k)))[date];
+      if (day) out[Number(k)] = day;
+    }
+    return out;
   }
 
   async getReviewIds(number: number, set: SetId) {
@@ -942,15 +1099,17 @@ class LocalStore implements Store {
 
   async record(number: number, set: SetId, rec: SaveRequest) {
     const next = apply(
-      (this.table(set, "results")[number] as TestResult[]) ?? [],
+      this.history(set, number),
       toNumberRecord(this.table(set, "practice")[number] as Record<string, unknown>),
       this.mastery(set, number),
+      (this.table(set, "days")[number] as Days | undefined) ?? null,
       rec,
     );
     this.table(set, "results")[number] = next.history;
     this.table(set, "practice")[number] = next.practice;
     this.table(set, "mastery")[number] = next.state;
-    this.table(set, "summary")[number] = summarize(next.state);
+    this.table(set, "summary")[number] = next.summary;
+    if (next.days) this.table(set, "days")[number] = next.days;
     this.save();
     return next.outcome;
   }

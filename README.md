@@ -108,6 +108,12 @@ http://localhost:3000/u/<合言葉> を開きます（合言葉はURLの一覧�
 記録は **Cloudflare D1**（`wrangler.jsonc` の binding `DB`）に保存します。テーブルは初回アクセス時に自動で作られます。
 保存先の優先順は D1 → Upstash Redis（Vercel 版）→ ローカルファイル です。
 
+無料プラン（1回の処理の CPU 時間は10ミリ秒まで）で記録が増えても動くよう、テストを受けるたびに
+回数・合計点・最高点・最後の受験日時（summary）と日ごとの最高点・回数（days）を保存し、
+ホーム・ランキング・友達のページではそれだけを読みます。テストの記録そのもの（results）は、
+ランキングで人を押したときと自分の「最近の成績」で1人分だけ読みます。
+この仕組みより前の記録は、最初にランキングなどを開いたときに1人1回だけ集計して保存します。
+
 ## データのバックアップと読み込み（管理者ページ）
 
 `/admin` を開くと、全員の記録をファイル（JSON）にダウンロードしたり、そのファイルを読み込んだりできます。
@@ -153,9 +159,9 @@ Upstash のコンソール（Vercel の Storage 画面から開けます）の D
 - `eijukugo:users` … 登録者（番号とニックネーム）
 - `eijukugo:study` … 学習時間の記録（D1 では `study` テーブル）
 - 英熟語モード：`eijukugo:v2:results`（受験結果）、`eijukugo:v2:practice`（練習の最高点）、
-  `eijukugo:v2:mastery`（問題ごとの習熟ポイント）、`eijukugo:v2:summary`（覚えた数・復習数）、`eijukugo:v2:wrong`（以前の復習リスト）
-- 英単語モード：`eijukugo:v2:word:results`、`eijukugo:v2:word:practice`、`eijukugo:v2:word:mastery`、`eijukugo:v2:word:summary`
-- 中学英語モード：`eijukugo:v2:jhs:results`、`eijukugo:v2:jhs:practice`、`eijukugo:v2:jhs:mastery`、`eijukugo:v2:jhs:summary`
+  `eijukugo:v2:mastery`（問題ごとの習熟ポイント）、`eijukugo:v2:summary`（覚えた数・復習数・テストの集計）、`eijukugo:v2:days`（日ごとの最高点・回数）、`eijukugo:v2:wrong`（以前の復習リスト）
+- 英単語モード：`eijukugo:v2:word:results`、`eijukugo:v2:word:practice`、`eijukugo:v2:word:mastery`、`eijukugo:v2:word:summary`、`eijukugo:v2:word:days`
+- 中学英語モード：`eijukugo:v2:jhs:results`、`eijukugo:v2:jhs:practice`、`eijukugo:v2:jhs:mastery`、`eijukugo:v2:jhs:summary`、`eijukugo:v2:jhs:days`
 
 Redis の接続情報は `KV_REST_API_URL` / `KV_REST_API_TOKEN`（接頭辞付きでも可）、`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`、
 または Upstash の接続文字列（`REDIS_URL` / `KV_URL`）から自動で読み取ります。

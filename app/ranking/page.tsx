@@ -12,22 +12,37 @@ import {
   practiceSummary,
   PRACTICE_QUESTION_COUNT,
   type Player,
+  type TestResult,
 } from "@/lib/types";
 import { useSet } from "../SetContext";
 import StudyRanking from "../study/StudyRanking";
 
+type DayRow = { number: number; nickname: string; best: number; count: number };
+
 // その日の最高点ランキング：選んだ日（日本時間）の本番テストで、1人ずつ最高点を並べる
-function DailyRanking({ players, myNumber, set }: { players: Player[]; myNumber: number | null; set: SetId }) {
+// 日ごとの最高点と回数は記録のたびにサーバーに保存してあり、選んだ日の分だけを読む
+function DailyRanking({ myNumber, set }: { myNumber: number | null; set: SetId }) {
   const today = jstDate();
   const [date, setDate] = useState(today);
+  const [day, setDay] = useState<{ date: string; rows: DayRow[] } | null>(null);
+  const [error, setError] = useState("");
 
-  const rows = players
-    .map((p) => {
-      const day = p.history.filter((r) => jstDate(r.at) === date);
-      return { p, best: day.length ? Math.max(...day.map((r) => r.score)) : null, count: day.length };
-    })
-    .filter((r): r is { p: Player; best: number; count: number } => r.best !== null)
-    .sort((a, b) => b.best - a.best || b.count - a.count || a.p.number - b.p.number);
+  useEffect(() => {
+    let alive = true;
+    setError("");
+    fetch(`/api/players?set=${set}&date=${date}`, { cache: "no-store" })
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok || !Array.isArray(d.day)) throw new Error();
+        if (alive) setDay({ date, rows: d.day });
+      })
+      .catch(() => alive && setError("データを読み込めませんでした。再読み込みしてください。"));
+    return () => {
+      alive = false;
+    };
+  }, [set, date]);
+
+  const rows = [...(day?.date === date ? day.rows : [])].sort((a, b) => b.best - a.best || b.count - a.count || a.number - b.number);
 
   // 同点は同順位
   const ranks: number[] = [];
@@ -54,7 +69,11 @@ function DailyRanking({ players, myNumber, set }: { players: Player[]; myNumber:
             </button>
           )}
         </div>
-        {rows.length === 0 ? (
+        {error ? (
+          <p className="error">{error}</p>
+        ) : day?.date !== date ? (
+          <p className="muted center">読み込み中…</p>
+        ) : rows.length === 0 ? (
           <p className="muted center">この日はまだ誰もテストを受けていません。</p>
         ) : (
           <div className="table-wrap">
@@ -70,14 +89,14 @@ function DailyRanking({ players, myNumber, set }: { players: Player[]; myNumber:
               </thead>
               <tbody>
                 {rows.map((r, i) => (
-                  <tr key={r.p.number} className={r.p.number === myNumber ? "me" : ""}>
+                  <tr key={r.number} className={r.number === myNumber ? "me" : ""}>
                     <td>
                       <span className="rank-badge">{rankLabel(ranks[i])}</span>
                     </td>
-                    <td>{r.p.number}</td>
+                    <td>{r.number}</td>
                     <td className="name">
-                      {r.p.nickname}
-                      {r.p.number === myNumber && <span className="muted">（あなた）</span>}
+                      {r.nickname}
+                      {r.number === myNumber && <span className="muted">（あなた）</span>}
                     </td>
                     <td>
                       <b>{r.best}</b>
@@ -225,6 +244,8 @@ export default function RankingPage() {
   const [error, setError] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("average");
   const [open, setOpen] = useState<number | null>(null);
+  // 行を押したときに読む、1人分のテストの全記録（番号 → 記録）
+  const [histories, setHistories] = useState<Record<number, TestResult[] | "error">>({});
   const [myNumber, setMyNumber] = useState<number | null>(null);
   const [tab, setTab] = useState<"test" | "daily" | "practice">("test");
   const [studyTab, setStudyTab] = useState<"daily" | "weekly">("daily");
@@ -246,10 +267,23 @@ export default function RankingPage() {
     }
   }, [ready, params, openStudy]);
 
+  function toggle(p: Player) {
+    setOpen(open === p.number ? null : p.number);
+    if (open === p.number || !p.count || (histories[p.number] && histories[p.number] !== "error")) return;
+    fetch(`/api/players?set=${set}&number=${p.number}`, { cache: "no-store" })
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok || !Array.isArray(d.history)) throw new Error();
+        setHistories((h) => ({ ...h, [p.number]: d.history }));
+      })
+      .catch(() => setHistories((h) => ({ ...h, [p.number]: "error" })));
+  }
+
   useEffect(() => {
     if (!ready) return;
     setMyNumber(loadMyNumber());
     setPlayers(null);
+    setHistories({});
     fetch(`/api/players?set=${set}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => setPlayers(d.players))
@@ -314,7 +348,7 @@ export default function RankingPage() {
     return (
       <>
         {tabs}
-        <DailyRanking players={players} myNumber={myNumber} set={set} />
+        <DailyRanking myNumber={myNumber} set={set} />
       </>
     );
   }
@@ -323,7 +357,7 @@ export default function RankingPage() {
   const totalTests = players.reduce((s, p) => s + p.count, 0);
   const overallAvg =
     totalTests > 0
-      ? Math.round((players.reduce((s, p) => s + p.history.reduce((t, r) => t + r.score, 0), 0) / totalTests) * 10) / 10
+      ? Math.round((players.reduce((s, p) => s + p.total, 0) / totalTests) * 10) / 10
       : null;
   // 表彰台は 2位・1位・3位 の順に並べる
   const top = tested.slice(0, 3);
@@ -406,7 +440,7 @@ export default function RankingPage() {
                     <Fragment key={p.number}>
                       <tr
                         className={`row ${p.number === myNumber ? "me" : ""}`}
-                        onClick={() => setOpen(open === p.number ? null : p.number)}
+                        onClick={() => toggle(p)}
                       >
                         <td>
                           <span className="rank-badge">{rankLabel(p.rank)}</span>
@@ -426,11 +460,15 @@ export default function RankingPage() {
                       {open === p.number && (
                         <tr className="history-row">
                           <td colSpan={7}>
-                            {p.history.length === 0 ? (
+                            {p.count === 0 ? (
                               <span className="muted">まだ受験していません</span>
+                            ) : !histories[p.number] ? (
+                              <span className="muted">読み込み中…</span>
+                            ) : histories[p.number] === "error" ? (
+                              <span className="error">読み込めませんでした</span>
                             ) : (
                               <div className="history">
-                                {p.history.map((r, i) => (
+                                {(histories[p.number] as TestResult[]).map((r, i) => (
                                   <span key={i} title={`所要時間 ${formatDuration(r.durationSec)}`}>
                                     {i + 1}回目　{formatDate(r.at)}　<b>{r.score}点</b>
                                   </span>
