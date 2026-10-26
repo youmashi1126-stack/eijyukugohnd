@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { hashPassword, isDump, slowDown, verifyPassword } from "@/lib/admin";
+import { ACCOUNT_NUMBERS } from "@/lib/accounts";
+import { buildSummary, loadHomeData } from "@/lib/homeSummary";
 import { getStore, renumberDump } from "@/lib/store";
 import { jstDate } from "@/lib/types";
 
@@ -13,6 +15,7 @@ export async function GET() {
 
 // action：setup（初回のパスワード設定）／export（データの書き出し）／import（ファイルの読み込み）
 //         materials（学習教材の進捗）／pastexams（過去問演習の記録）。どちらも管理者ページで Excel に書き出す
+//         accounts（各アカウントの状況。見せない設定のコーナーも含めて返す）
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const store = getStore();
@@ -46,6 +49,18 @@ export async function POST(req: Request) {
       users: users.map((u) => ({ number: u.number, nickname: u.nickname })).sort((a, b) => a.number - b.number),
       materials,
       today: jstDate(),
+    });
+  }
+
+  if (action === "accounts") {
+    const [users, data] = await Promise.all([store.getUsers(), loadHomeData()]);
+    const byNumber = new Map(users.map((u) => [u.number, u]));
+    return NextResponse.json({
+      today: data.today,
+      accounts: ACCOUNT_NUMBERS.map((n) => {
+        const user = byNumber.get(n);
+        return user ? { number: n, summary: buildSummary(user, data, { isMe: false, showAll: true }) } : { number: n, summary: null };
+      }),
     });
   }
 

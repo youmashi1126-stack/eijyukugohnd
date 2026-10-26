@@ -10,6 +10,7 @@ export type SetSummary = {
   review: number; // 復習すべき数
   cleared: number; // 練習でクリアしたセクションの数
   sections: number;
+  lastAt?: string | null; // 最後にテストを受けた日時
 };
 
 export type StudySummary = { week: string; weekTotal: number; goal: number | null; today: number; days: number; quant: string };
@@ -40,6 +41,7 @@ export type HomeSummary = {
   study: StudySummary | null;
   materials: MaterialsSummary | null;
   pastexams: PastSummary | null;
+  lastActive?: string | null; // 最後に記録した日（テスト・学習時間）
 };
 
 // 番号の組（101〜135 → 100番台）
