@@ -18,7 +18,33 @@ import {
 } from "@/lib/study";
 
 type UserRow = { number: number; nickname: string };
-type Data = { users: UserRow[]; study: Record<number, StudyLog>; today: string };
+// study はその週（week）の分だけの記録（目標はすべて）
+type Data = { users: UserRow[]; study: Record<number, StudyLog>; today: string; week: string };
+
+// 読み込んだ週の記録（ランキングを開くたびに今週の分から読み直す）
+const weekCache = new Map<string, Data>();
+
+// その週の全員の記録。まだ読んでいなければ読みに行き、読み終わるまでは null
+function useWeekData(week: string): { loaded: Data | null; failed: boolean } {
+  const [, setTick] = useState(0);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (weekCache.has(week)) return;
+    let alive = true;
+    fetch(`/api/study?week=${week}`, { cache: "no-store" })
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok || !d.study) throw new Error();
+        weekCache.set(week, d);
+        if (alive) setTick((t) => t + 1);
+      })
+      .catch(() => alive && setFailed(true));
+    return () => {
+      alive = false;
+    };
+  }, [week]);
+  return { loaded: weekCache.get(week) ?? null, failed };
+}
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
@@ -33,9 +59,11 @@ function moodIcon(log: StudyLog | undefined, date: string) {
 }
 
 // 毎日の学習時間ランキング：選んだ日の学習時間の長い順
-function DailyStudyRanking({ data, myNumber }: { data: Data; myNumber: number | null }) {
-  const [date, setDate] = useState(data.today);
-  const rows = data.users
+function DailyStudyRanking({ initial, myNumber }: { initial: Data; myNumber: number | null }) {
+  const [date, setDate] = useState(initial.today);
+  const { loaded, failed } = useWeekData(weekStart(date));
+  const data = loaded ?? initial;
+  const rows = (loaded ? data.users : [])
     .map((u) => ({ u, minutes: data.study[u.number]?.days[date]?.minutes ?? 0 }))
     .filter((r) => r.minutes > 0)
     .sort((a, b) => b.minutes - a.minutes || a.u.number - b.u.number);
@@ -78,7 +106,9 @@ function DailyStudyRanking({ data, myNumber }: { data: Data; myNumber: number | 
             </button>
           )}
         </div>
-        {rows.length === 0 ? (
+        {!loaded ? (
+          <p className={failed ? "error" : "muted center"}>{failed ? "データを読み込めませんでした。再読み込みしてください。" : "読み込み中…"}</p>
+        ) : rows.length === 0 ? (
           <p className="muted center">この日はまだ誰も学習時間を記録していません。</p>
         ) : (
           <div className="table-wrap">
@@ -119,10 +149,12 @@ function DailyStudyRanking({ data, myNumber }: { data: Data; myNumber: number | 
 }
 
 // 毎週の学習時間ランキング：月曜〜日曜の合計の長い順。目標の達成率も表示
-function WeeklyStudyRanking({ data, myNumber }: { data: Data; myNumber: number | null }) {
-  const thisWeek = weekStart(data.today);
+function WeeklyStudyRanking({ initial, myNumber }: { initial: Data; myNumber: number | null }) {
+  const thisWeek = weekStart(initial.today);
   const [week, setWeek] = useState(thisWeek);
-  const rows = data.users
+  const { loaded, failed } = useWeekData(week);
+  const data = loaded ?? initial;
+  const rows = (loaded ? data.users : [])
     .map((u) => {
       const log = data.study[u.number];
       const total = log ? weekTotal(log, week) : 0;
@@ -172,7 +204,9 @@ function WeeklyStudyRanking({ data, myNumber }: { data: Data; myNumber: number |
             次の週 ›
           </button>
         </div>
-        {rows.length === 0 ? (
+        {!loaded ? (
+          <p className={failed ? "error" : "muted center"}>{failed ? "データを読み込めませんでした。再読み込みしてください。" : "読み込み中…"}</p>
+        ) : rows.length === 0 ? (
           <p className="muted center">この週はまだ誰も学習時間を記録していません。</p>
         ) : (
           <div className="week-rank">
@@ -214,7 +248,11 @@ export default function StudyRanking({ initialTab = "daily" }: { initialTab?: "d
     setMyNumber(loadMyNumber());
     fetch("/api/study", { cache: "no-store" })
       .then((r) => r.json())
-      .then(setData)
+      .then((d: Data) => {
+        weekCache.clear();
+        weekCache.set(d.week, d);
+        setData(d);
+      })
       .catch(() => setError("データを読み込めませんでした。再読み込みしてください。"));
   }, []);
 
@@ -231,7 +269,7 @@ export default function StudyRanking({ initialTab = "daily" }: { initialTab?: "d
           📊 毎週の学習時間
         </button>
       </div>
-      {tab === "daily" ? <DailyStudyRanking data={data} myNumber={myNumber} /> : <WeeklyStudyRanking data={data} myNumber={myNumber} />}
+      {tab === "daily" ? <DailyStudyRanking initial={data} myNumber={myNumber} /> : <WeeklyStudyRanking initial={data} myNumber={myNumber} />}
       <p className="center">
         <Link href="/c/study" className="btn btn-primary">
           ⏱️ 学習時間を記録する

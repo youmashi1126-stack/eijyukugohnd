@@ -5,7 +5,20 @@ import path from "node:path";
 import { SET_IDS, type SetId } from "./sets";
 import { toMaterials, type Material } from "./materials";
 import { toExams, type Exam } from "./pastExams";
-import { applyStudyPatch, toStudyLog, type StudyLog, type StudyPatch } from "./study";
+import {
+  applyStudyPatch,
+  metaOf,
+  partialLog,
+  sliceLog,
+  toStudyLog,
+  weekRowOf,
+  weeksOf,
+  weekStart,
+  type StudyLog,
+  type StudyMeta,
+  type StudyPatch,
+  type StudyWeekRow,
+} from "./study";
 import { MASTERY_GOAL, MASTERY_POINTS, type Mastery, type TestResult, type User } from "./types";
 
 // 1人分の習熟データ：問題番号 → [習熟ポイント, 要復習(1/0)]。a は同じ解答を二重に反映しないための最近の送信ID
@@ -61,6 +74,18 @@ export type Dump = {
 };
 
 export type ImportCount = { users: number; records: number };
+
+export type StudyWeeks = { logs: Record<number, StudyLog>; last: Record<number, string | null> };
+
+function sliceAll(all: Record<number, StudyLog>, weeks: string[]): StudyWeeks {
+  const logs: Record<number, StudyLog> = {};
+  const last: Record<number, string | null> = {};
+  for (const [n, log] of Object.entries(all)) {
+    logs[Number(n)] = sliceLog(log, weeks);
+    last[Number(n)] = metaOf(log).last;
+  }
+  return { logs, last };
+}
 
 export type UserPatch = { nickname?: string; corners?: string[]; hidden?: string[] };
 
@@ -121,6 +146,8 @@ interface Store {
   // 学習時間の記録：全員分の読み出しと、1人分の更新（更新後の記録を返す）
   getStudy(): Promise<Record<number, StudyLog>>;
   getStudyOf(number: number): Promise<StudyLog>;
+  // 全員分の、指定した週の分だけの記録（目標はすべて）と、最後に学習時間を記録した日
+  getStudyWeeks(weeks: string[]): Promise<StudyWeeks>;
   updateStudy(number: number, patch: StudyPatch): Promise<StudyLog>;
   // 学習教材：全員分の読み出し、1人分の読み出しと保存（一覧ごと置き換える）
   getMaterials(): Promise<Record<number, Material[]>>;
@@ -590,6 +617,11 @@ class RedisStore implements Store {
     return toStudyLog(parse<unknown>(await this.redis.hget(STUDY_KEY, String(number)), null));
   }
 
+  // Redis（Vercel 版）では全員分を読んでから必要な週を取り出す
+  async getStudyWeeks(weeks: string[]) {
+    return sliceAll(await this.getStudy(), weeks);
+  }
+
   async updateStudy(number: number, patch: StudyPatch) {
     await this.migrate();
     const f = String(number);
@@ -661,6 +693,9 @@ const D1_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS study (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
   "CREATE TABLE IF NOT EXISTS materials (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
   "CREATE TABLE IF NOT EXISTS past_exams (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
+  // 学習時間を週ごとに分けたもの（study から作る。ランキングなどで必要な週だけ読む）と、1人分の目標・最後に記録した日
+  "CREATE TABLE IF NOT EXISTS study_weeks (week TEXT NOT NULL, number INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (week, number))",
+  "CREATE TABLE IF NOT EXISTS study_meta (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
 ];
 const UPSERT_RECORD =
   "INSERT INTO records (set_id, kind, number, data) VALUES (?, ?, ?, ?) ON CONFLICT (set_id, kind, number) DO UPDATE SET data = excluded.data";
@@ -685,6 +720,7 @@ class D1Store implements Store {
     this.ready ??= this.db
       .batch(D1_SCHEMA.map((s) => this.db.prepare(s)))
       .then(() => this.renumber())
+      .then(() => this.splitStudy())
       .catch((e) => {
         this.ready = null;
         throw e;
@@ -705,6 +741,35 @@ class D1Store implements Store {
       this.db.prepare(`UPDATE past_exams SET number = number + ${RENUMBER_SHIFT} WHERE ${range}`),
       this.db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('renumbered', ?)").bind(new Date().toISOString()),
     ]);
+  }
+
+  // 学習時間の記録を週ごとに分けて保存する（この仕組みより前の記録の分。一度だけ）
+  // 同時に保存された新しい記録は上書きしないよう、まだない行だけを入れる
+  private async splitStudy() {
+    if (await this.db.prepare("SELECT 1 AS ok FROM settings WHERE key = 'study-weeks'").first()) return;
+    const { results } = await this.db.prepare("SELECT number, data FROM study").all<{ number: number; data: string }>();
+    const statements: D1Stmt[] = [];
+    for (const r of results) {
+      const log = toStudyLog(JSON.parse(r.data));
+      statements.push(...this.studyRows(r.number, log, weeksOf(log), true));
+    }
+    statements.push(this.db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('study-weeks', ?)").bind(new Date().toISOString()));
+    for (let i = 0; i < statements.length; i += 50) await this.db.batch(statements.slice(i, i + 50));
+  }
+
+  // 1人分の記録から、目標の行と指定した週の行を書く文（記録もゴールもない週は消す）
+  private studyRows(number: number, log: StudyLog, weeks: string[], onlyMissing = false): D1Stmt[] {
+    const verb = onlyMissing ? "INSERT OR IGNORE INTO" : "INSERT OR REPLACE INTO";
+    const out = [this.db.prepare(`${verb} study_meta (number, data) VALUES (?, ?)`).bind(number, JSON.stringify(metaOf(log)))];
+    for (const w of weeks) {
+      const row = weekRowOf(log, w);
+      out.push(
+        row
+          ? this.db.prepare(`${verb} study_weeks (week, number, data) VALUES (?, ?, ?)`).bind(w, number, JSON.stringify(row))
+          : this.db.prepare("DELETE FROM study_weeks WHERE week = ? AND number = ?").bind(w, number),
+      );
+    }
+    return out;
   }
 
   private async rows(set: SetId, kinds: Kind[], number?: number) {
@@ -882,7 +947,10 @@ class D1Store implements Store {
       }
     }
     for (const [n, v] of Object.entries(dump.study ?? {})) {
-      statements.push(this.db.prepare(UPSERT_STUDY).bind(Number(n), JSON.stringify(toStudyLog(v))));
+      const log = toStudyLog(v);
+      statements.push(this.db.prepare(UPSERT_STUDY).bind(Number(n), JSON.stringify(log)));
+      // 週ごとの行も読み込んだ記録に合わせて作り直す
+      statements.push(this.db.prepare("DELETE FROM study_weeks WHERE number = ?").bind(Number(n)), ...this.studyRows(Number(n), log, weeksOf(log)));
     }
     for (const [n, v] of Object.entries(dump.materials ?? {})) {
       statements.push(this.db.prepare(UPSERT_MATERIALS).bind(Number(n), JSON.stringify(toMaterials(v))));
@@ -927,8 +995,33 @@ class D1Store implements Store {
     await this.init();
     const row = await this.db.prepare("SELECT data FROM study WHERE number = ?").bind(number).first<{ data: string }>();
     const next = applyStudyPatch(toStudyLog(row ? JSON.parse(row.data) : null), patch);
-    await this.db.prepare(UPSERT_STUDY).bind(number, JSON.stringify(next)).run();
+    // 記録全体と、変わった週の行・目標の行を一緒に保存する
+    const week = patch.type === "day" ? weekStart(patch.date) : patch.week;
+    await this.db.batch([this.db.prepare(UPSERT_STUDY).bind(number, JSON.stringify(next)), ...this.studyRows(number, next, [week])]);
     return next;
+  }
+
+  async getStudyWeeks(weeks: string[]) {
+    await this.init();
+    const [meta, rows] = await Promise.all([
+      this.db.prepare("SELECT number, data FROM study_meta").all<{ number: number; data: string }>(),
+      weeks.length
+        ? this.db
+            .prepare(`SELECT week, number, data FROM study_weeks WHERE week IN (${weeks.map(() => "?").join(", ")})`)
+            .bind(...weeks)
+            .all<{ week: string; number: number; data: string }>()
+        : Promise.resolve({ results: [] as { week: string; number: number; data: string }[] }),
+    ]);
+    const byNumber: Record<number, Record<string, StudyWeekRow>> = {};
+    for (const r of rows.results) (byNumber[r.number] ??= {})[r.week] = JSON.parse(r.data);
+    const logs: Record<number, StudyLog> = {};
+    const last: Record<number, string | null> = {};
+    for (const m of meta.results) {
+      const data = JSON.parse(m.data) as StudyMeta;
+      logs[m.number] = partialLog(data, byNumber[m.number] ?? {});
+      last[m.number] = data.last;
+    }
+    return { logs, last };
   }
 
   async getMaterials() {
@@ -1170,6 +1263,10 @@ class LocalStore implements Store {
 
   async getStudyOf(number: number) {
     return toStudyLog(this.db.study?.[number]);
+  }
+
+  async getStudyWeeks(weeks: string[]) {
+    return sliceAll(await this.getStudy(), weeks);
   }
 
   async updateStudy(number: number, patch: StudyPatch) {

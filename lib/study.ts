@@ -188,3 +188,51 @@ export function rankBy<T>(rows: T[], value: (r: T) => number): number[] {
   rows.forEach((r, i) => ranks.push(i > 0 && value(rows[i - 1]) === value(r) ? ranks[i - 1] : i + 1));
   return ranks;
 }
+
+// ---------- 週ごとに分けた保存（サーバーで使う） ----------
+// 全員分の記録を毎回読むと、記録が増えるほど処理が重くなる（無料プランの CPU 時間を超える）。
+// そこで、1人分の記録（StudyLog）とは別に「週ごとの記録」と「目標・最後に記録した日」を保存し、
+// ランキング・みんなの目標・管理者の一覧では必要な週の分だけを読む
+
+// 1週間分：その週の日ごとの記録と、その週のゴール
+export type StudyWeekRow = { days: Record<string, StudyDay>; note?: WeekNote };
+// 1人分の目標（週 → 分。引き継ぎの計算に前の週の目標も使う）と、最後に学習時間を記録した日
+export type StudyMeta = { goals: Record<string, number>; last: string | null };
+
+export function weekRowOf(log: StudyLog, week: string): StudyWeekRow | null {
+  const days: Record<string, StudyDay> = {};
+  for (const d of weekDates(week)) if (log.days[d]) days[d] = log.days[d];
+  const note = log.notes[week];
+  if (!Object.keys(days).length && !note) return null;
+  return note ? { days, note } : { days };
+}
+
+// 記録かゴールがある週（月曜日の日付）
+export function weeksOf(log: StudyLog): string[] {
+  return [...new Set([...Object.keys(log.days).map(weekStart), ...Object.keys(log.notes)])].sort();
+}
+
+export function metaOf(log: StudyLog): StudyMeta {
+  const studied = Object.keys(log.days).filter((d) => log.days[d].minutes > 0);
+  return { goals: log.goals, last: studied.length ? studied.sort()[studied.length - 1] : null };
+}
+
+// 目標と、読んだ週の分だけを持つ記録（その週の合計・目標・ゴールの計算は全体の記録と同じ結果になる）
+export function partialLog(meta: StudyMeta | undefined, rows: Record<string, StudyWeekRow>): StudyLog {
+  const log: StudyLog = { days: {}, goals: { ...(meta?.goals ?? {}) }, notes: {} };
+  for (const [week, r] of Object.entries(rows)) {
+    Object.assign(log.days, r.days);
+    if (r.note) log.notes[week] = r.note;
+  }
+  return log;
+}
+
+// 全体の記録から、指定した週の分だけを持つ記録を作る（Redis・ローカルの保存先で使う）
+export function sliceLog(log: StudyLog, weeks: string[]): StudyLog {
+  const rows: Record<string, StudyWeekRow> = {};
+  for (const w of weeks) {
+    const r = weekRowOf(log, w);
+    if (r) rows[w] = r;
+  }
+  return partialLog(metaOf(log), rows);
+}

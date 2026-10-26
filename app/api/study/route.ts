@@ -20,28 +20,48 @@ export const dynamic = "force-dynamic";
 
 const UNAUTHORIZED = { error: "個人用のURLから開き直してください" };
 
-// 全員の学習時間の記録（記録画面・ランキング・みんなの目標で使う）。today は日本時間の今日
+// 学習時間の記録。today は日本時間の今日
+// ?mine=1：本人の記録全体（記録画面）
+// ?week=YYYY-MM-DD（月曜日）：全員の、その週の分だけの記録（ランキング・みんなの目標）。指定がなければ今週
 // 定性ゴールの文は本人だけが見られるよう、他の人の分は外して返す（◎〇△×の振り返りは返す）
 export async function GET(req: Request) {
   const me = await sessionNumber(req);
   if (me === null) return NextResponse.json(UNAUTHORIZED, { status: 401 });
   const store = getStore();
-  const [allUsers, study] = await Promise.all([store.getUsers(), store.getStudy()]);
+  const today = jstDate();
+  const params = new URL(req.url).searchParams;
+
+  if (params.get("mine")) {
+    const user = await store.getUser(me);
+    return NextResponse.json({
+      users: user ? [{ number: user.number, nickname: user.nickname }] : [],
+      study: user ? { [me]: await store.getStudyOf(me) } : {},
+      today,
+      persistent: store.persistent,
+    });
+  }
+
+  const week = params.get("week") ?? weekStart(today);
+  if (!isDateString(week) || weekStart(week) !== week) {
+    return NextResponse.json({ error: "週の指定が正しくありません" }, { status: 400 });
+  }
+  const [allUsers, { logs }] = await Promise.all([store.getUsers(), store.getStudyWeeks([week])]);
   // マイページで学習時間を「見せない」にした人は、本人以外には返さない（ランキング・みんなの目標に出さない）
   const users = allUsers.filter((u) => u.number === me || !u.hidden?.includes("study"));
-  const shown = new Set(users.map((u) => u.number));
   const visible: Record<number, StudyLog> = {};
-  for (const [n, log] of Object.entries(study)) {
-    if (!shown.has(Number(n))) continue;
-    visible[Number(n)] =
-      Number(n) === me
+  for (const u of users) {
+    const log = logs[u.number];
+    if (!log) continue;
+    visible[u.number] =
+      u.number === me
         ? log
         : { ...log, notes: Object.fromEntries(Object.entries(log.notes).map(([w, note]) => [w, { ...note, qual: "" }])) };
   }
   return NextResponse.json({
     users: users.map((u) => ({ number: u.number, nickname: u.nickname })).sort((a, b) => a.number - b.number),
     study: visible,
-    today: jstDate(),
+    today,
+    week,
     persistent: store.persistent,
   });
 }

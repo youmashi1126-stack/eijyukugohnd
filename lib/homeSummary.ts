@@ -5,27 +5,33 @@ import { viewSubject, viewTotal, type Exam } from "./pastExams";
 import { getPlayers } from "./players";
 import { SET_IDS, SETS, type Corner, type SetId } from "./sets";
 import { getStore } from "./store";
-import { goalFor, studiedDays, toStudyLog, weekStart, weekTotal, type StudyLog } from "./study";
+import { addDays, goalFor, metaOf, studiedDays, toStudyLog, weekStart, weekTotal, type StudyLog } from "./study";
 import { jstDate, practiceSummary, type Player, type User } from "./types";
 
 export type HomeData = {
   today: string;
   players: Record<SetId, Player[]>;
+  // 学習時間：全員分のときは今週と先週の分だけ（記録全体は重いので読まない）
   study: Record<number, StudyLog>;
+  studyLast: Record<number, string | null>; // 最後に学習時間を記録した日
   materials: Record<number, Material[]>;
   pastExams: Record<number, Exam[]>;
 };
 
-// 概要に使う記録をまとめて読む。only を渡すと、教材・過去問はその人の分だけ読む
+// 概要に使う記録をまとめて読む。only を渡すと、学習時間・教材・過去問はその人の分だけ読む
 export async function loadHomeData(only?: number): Promise<HomeData> {
   const store = getStore();
-  const [players, study, materials, pastExams] = await Promise.all([
+  const today = jstDate();
+  const week = weekStart(today);
+  const [players, { logs: study, last: studyLast }, materials, pastExams] = await Promise.all([
     Promise.all(SET_IDS.map(async (set) => [set, await getPlayers(set)] as const)).then((e) => Object.fromEntries(e) as Record<SetId, Player[]>),
-    only === undefined ? store.getStudy() : store.getStudyOf(only).then((l) => ({ [only]: l })),
+    only === undefined
+      ? store.getStudyWeeks([week, addDays(week, -7)])
+      : store.getStudyOf(only).then((l) => ({ logs: { [only]: l }, last: { [only]: metaOf(l).last } })),
     only === undefined ? store.getMaterials() : store.getMaterialsOf(only).then((m) => ({ [only]: m })),
     only === undefined ? store.getPastExams() : store.getPastExamsOf(only).then((p) => ({ [only]: p })),
   ]);
-  return { today: jstDate(), players, study, materials, pastExams };
+  return { today, players, study, studyLast, materials, pastExams };
 }
 
 // showAll：見せない設定のコーナーも含める（本人・管理者）
@@ -109,9 +115,7 @@ export function buildSummary(user: User, data: HomeData, { isMe, showAll }: { is
   // 最後に記録した日（テストを受けた日・学習時間を記録した日のうち新しいもの。日本時間の日付）
   const dates = [
     ...SET_IDS.map((set) => data.players[set].find((x) => x.number === number)?.lastAt).filter((v): v is string => !!v).map((v) => jstDate(v)),
-    ...Object.entries(log.days)
-      .filter(([, d]) => d.minutes > 0)
-      .map(([d]) => d),
+    ...(data.studyLast[number] ? [data.studyLast[number]!] : []),
   ].sort();
   summary.lastActive = dates.length ? dates[dates.length - 1] : null;
   return summary;

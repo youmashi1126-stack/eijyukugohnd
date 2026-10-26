@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { loadMyNumber } from "@/lib/me";
 import { addDays, canEvaluate, formatMinutes, goalFor, weekLabel, weekStart, weekTotal, type Eval, type StudyLog } from "@/lib/study";
 
-type Data = { users: { number: number; nickname: string }[]; study: Record<number, StudyLog>; today: string };
+// study はその週（week）の分だけの記録（目標はすべて）
+type Data = { users: { number: number; nickname: string }[]; study: Record<number, StudyLog>; today: string; week: string };
 
 // 今週を開いている間は、この間隔で記録を読み直して達成状況を最新にする
 const REFRESH_MS = 60_000;
@@ -22,38 +23,50 @@ export default function StudyGoalsPage() {
   const [week, setWeek] = useState("");
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
-  const load = useCallback(async () => {
+  // 最後に読みに行った週
+  const loadedWeek = useRef<string | null>(null);
+
+  // 選んだ週の分だけを読む（最初は今週）
+  const load = useCallback(async (w: string) => {
     try {
-      const r = await fetch("/api/study", { cache: "no-store" });
+      const r = await fetch(w ? `/api/study?week=${w}` : "/api/study", { cache: "no-store" });
       if (!r.ok) throw new Error();
       const d: Data = await r.json();
+      // 読んでいる間に別の週に切り替えていたら使わない
+      if (w && loadedWeek.current !== w) return;
       setData(d);
-      setWeek((w) => w || weekStart(d.today));
+      setWeek((cur) => {
+        if (!cur) loadedWeek.current = d.week;
+        return cur || d.week;
+      });
       setUpdatedAt(new Date());
     } catch {
       setError("データを読み込めませんでした。再読み込みしてください。");
     }
   }, []);
 
+  // 最初は今週を読み、その週が決まったあとは週を切り替えたときだけ読む
   useEffect(() => {
-    load();
-  }, [load]);
+    if (loadedWeek.current === week) return;
+    loadedWeek.current = week;
+    if (week || !data) load(week);
+  }, [load, week, data]);
 
   const thisWeek = data ? weekStart(data.today) : "";
   const live = !!data && week === thisWeek;
   useEffect(() => {
     if (!live) return;
-    const id = setInterval(load, REFRESH_MS);
-    const onFocus = () => load();
+    const id = setInterval(() => load(week), REFRESH_MS);
+    const onFocus = () => load(week);
     window.addEventListener("focus", onFocus);
     return () => {
       clearInterval(id);
       window.removeEventListener("focus", onFocus);
     };
-  }, [live, load]);
+  }, [live, load, week]);
 
   if (error) return <p className="error">{error}</p>;
-  if (!data || !week) return <p className="muted center">読み込み中…</p>;
+  if (!data || !week || data.week !== week) return <p className="muted center">読み込み中…</p>;
 
   const myNumber = loadMyNumber();
   const showEval = canEvaluate(week, data.today);
