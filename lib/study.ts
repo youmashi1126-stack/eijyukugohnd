@@ -9,8 +9,12 @@ export const MOODS: { id: Mood; icon: string; label: string }[] = [
 
 export type StudyDay = { minutes: number; mood: Mood | null };
 
-// days：日付 → その日の記録、goals：週の始まり（月曜）の日付 → 目標（分）
-export type StudyLog = { days: Record<string, StudyDay>; goals: Record<string, number> };
+// その週の定量ゴール（数で測れる目標）と定性ゴール（取り組み方などの目標）。どちらも30字まで
+export type WeekNote = { quant: string; qual: string };
+export const NOTE_MAX = 30;
+
+// days：日付 → その日の記録、goals：週の始まり（月曜）の日付 → 目標（分）、notes：週の始まり → 定量・定性ゴール
+export type StudyLog = { days: Record<string, StudyDay>; goals: Record<string, number>; notes: Record<string, WeekNote> };
 
 // 1日に入力できる上限と、1週間の目標の上限（分）
 export const MAX_DAY_MINUTES = 16 * 60;
@@ -19,7 +23,17 @@ export const MAX_WEEK_GOAL = 7 * MAX_DAY_MINUTES;
 export const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 
 export function emptyLog(): StudyLog {
-  return { days: {}, goals: {} };
+  return { days: {}, goals: {}, notes: {} };
+}
+
+// 文字数（絵文字なども1文字と数える）
+export function charCount(s: string) {
+  return [...s].length;
+}
+
+// 1行・30字までに整える
+export function cleanNote(v: unknown): string {
+  return [...String(v ?? "").replace(/[\r\n\t]+/g, " ").trim()].slice(0, NOTE_MAX).join("");
 }
 
 export function isMood(v: unknown): v is Mood {
@@ -100,6 +114,11 @@ export function toStudyLog(v: unknown): StudyLog {
     const g = Number(goal);
     if (isDateString(week) && Number.isFinite(g)) log.goals[week] = clamp(g, MAX_WEEK_GOAL);
   }
+  for (const [week, note] of Object.entries(o.notes ?? {})) {
+    if (!isDateString(week) || !note || typeof note !== "object") continue;
+    const n = { quant: cleanNote((note as WeekNote).quant), qual: cleanNote((note as WeekNote).qual) };
+    if (n.quant || n.qual) log.notes[week] = n;
+  }
   return log;
 }
 
@@ -107,13 +126,14 @@ function clamp(n: number, max: number) {
   return Math.max(0, Math.min(max, Math.round(n)));
 }
 
-// 1回の保存内容：その日の記録（minutes / mood は送った項目だけ変える）または週の目標
+// 1回の保存内容：その日の記録（minutes / mood は送った項目だけ変える）、週の目標時間、または週の定量・定性ゴール
 export type StudyPatch =
   | { type: "day"; date: string; minutes?: number; mood?: Mood | null }
-  | { type: "goal"; week: string; minutes: number | null };
+  | { type: "goal"; week: string; minutes: number | null }
+  | { type: "notes"; week: string; quant: string; qual: string };
 
 export function applyStudyPatch(log: StudyLog, patch: StudyPatch): StudyLog {
-  const next: StudyLog = { days: { ...log.days }, goals: { ...log.goals } };
+  const next: StudyLog = { days: { ...log.days }, goals: { ...log.goals }, notes: { ...log.notes } };
   if (patch.type === "day") {
     const prev = next.days[patch.date] ?? { minutes: 0, mood: null };
     const day: StudyDay = {
@@ -122,6 +142,10 @@ export function applyStudyPatch(log: StudyLog, patch: StudyPatch): StudyLog {
     };
     if (day.minutes === 0 && day.mood === null) delete next.days[patch.date];
     else next.days[patch.date] = day;
+  } else if (patch.type === "notes") {
+    const note = { quant: cleanNote(patch.quant), qual: cleanNote(patch.qual) };
+    if (note.quant || note.qual) next.notes[patch.week] = note;
+    else delete next.notes[patch.week];
   } else if (patch.minutes === null) {
     delete next.goals[patch.week];
   } else {

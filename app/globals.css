@@ -1694,11 +1694,7 @@ table.ranking {
   box-shadow: 0 6px 18px rgba(124, 58, 237, 0.25);
 }
 
-.set-switch.four {
-  grid-template-columns: repeat(4, 1fr);
-}
-
-.set-switch.four .set-tab {
+.set-switch.multi .set-tab {
   flex-direction: column;
   gap: 2px;
   padding: 10px 6px;
@@ -1718,21 +1714,21 @@ table.ranking {
 }
 
 @media (max-width: 520px) {
-  .set-switch.four {
+  .set-switch.multi {
     gap: 6px;
   }
-  .set-switch.four .set-tab {
+  .set-switch.multi .set-tab {
     padding: 8px 2px;
     border-radius: 14px;
   }
-  .set-switch.four .set-tab-icon {
+  .set-switch.multi .set-tab-icon {
     font-size: 22px;
   }
-  .set-switch.four .set-tab b {
+  .set-switch.multi .set-tab b {
     font-size: 13px;
     white-space: nowrap;
   }
-  .set-switch.four .set-tab small {
+  .set-switch.multi .set-tab small {
     font-size: 10px;
   }
 }
@@ -2115,7 +2111,8 @@ table.ranking {
 }
 
 .mood-icon {
-  font-size: 20px;
+  font-size: 28px;
+  line-height: 1.2;
 }
 
 .mood-btn.active.good {
@@ -2200,5 +2197,118 @@ table.ranking {
     padding: 5px 8px;
     font-size: 12px;
     white-space: nowrap;
+  }
+}
+
+/* マイページ */
+.corner-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.corner-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.corner-choice.on {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.corner-choice input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+
+.save-ok {
+  margin-top: 8px;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ok);
+}
+
+/* 学習時間：週の定量・定性ゴール */
+.notes-editor {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.note-field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.note-field label {
+  font-weight: 800;
+}
+
+.note-field .input {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.note-field .note-text {
+  padding: 8px 12px;
+  font-size: 15px;
+  line-height: 1.5;
+  resize: none;
+  font-family: inherit;
+}
+
+.note-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  min-width: 40px;
+  text-align: right;
+}
+
+.note-count.over {
+  color: var(--ng);
+}
+
+.notes-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 今週のみんなの目標 */
+.ranking.goals-table td.goal-text {
+  text-align: left;
+  white-space: normal;
+  word-break: break-all;
+  font-size: 14px;
+  min-width: 7em;
+}
+
+.ranking.goals-table td.name {
+  min-width: 5em;
+}
+
+@media (max-width: 520px) {
+  .ranking.goals-table th,
+  .ranking.goals-table td {
+    padding: 8px 4px;
+  }
+  .ranking.goals-table td.goal-text {
+    min-width: 6em;
+    font-size: 13px;
   }
 }

@@ -17,3 +17,7 @@ export const SET_IDS: SetId[] = ["word", "idiom", "jhs"];
 export function parseSet(v: unknown): SetId {
   return v === "word" || v === "jhs" ? v : "idiom";
 }
+
+// ホームで切り替えるコーナー：英単語・英熟語・中学英語と、学習時間
+export type Corner = SetId | "study";
+export const CORNERS: Corner[] = [...SET_IDS, "study"];

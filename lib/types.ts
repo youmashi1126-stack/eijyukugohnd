@@ -1,7 +1,5 @@
+import { ACCOUNT_HASHES } from "./accounts";
 import { SETS, type SetId } from "./sets";
-
-export const MIN_NUMBER = 1;
-export const MAX_NUMBER = 35;
 
 // テストの制限時間（朝学習と同じ2分30秒）と、練習モードの1問あたりの制限時間
 export const TEST_TIME_LIMIT_SEC = 150;
@@ -19,7 +17,10 @@ export const REVIEW_COUNT = 15;
 export const MASTERY_GOAL = 6;
 export const MASTERY_POINTS = { test: 3, practice: 2, review: 1.5 } as const;
 
-export type User = { number: number; nickname: string; createdAt: string };
+// corners：マイページで選んだ、表示するコーナー（未設定ならすべて表示）
+export type User = { number: number; nickname: string; createdAt: string; corners?: string[] };
+
+export const NICKNAME_MAX = 12;
 
 // attemptId は通信の再試行で同じ結果が二重に記録されないようにするための識別子
 export type TestResult = { score: number; at: string; durationSec: number; attemptId?: string };
@@ -51,8 +52,9 @@ export type Player = {
   reviewCount: number; // 復習すべき数
 };
 
+// アカウントの番号（101〜135、201〜235、301〜335）
 export function isValidNumber(n: unknown): n is number {
-  return typeof n === "number" && Number.isInteger(n) && n >= MIN_NUMBER && n <= MAX_NUMBER;
+  return typeof n === "number" && Number.isInteger(n) && n in ACCOUNT_HASHES;
 }
 
 export function isValidSection(s: unknown, set: SetId): s is number {

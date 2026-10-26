@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { dataset, QUESTION_COUNT, sectionItems } from "@/lib/datasets";
 import { parseSet } from "@/lib/sets";
+import { sessionNumber } from "@/lib/auth";
 import { getStore } from "@/lib/store";
 import {
-  isValidNumber,
   isValidSection,
   PRACTICE_QUESTION_COUNT,
   REVIEW_COUNT,
@@ -17,7 +17,8 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const set = parseSet(body?.set);
-  const number = body?.number;
+  // 記録するのはログインしている本人の番号だけ（送られてきた番号は使わない）
+  const number = await sessionNumber(req);
   const mode: Mode = body?.mode === "review" || body?.mode === "practice" ? body.mode : "test";
   const section = body?.section;
   const answers: Answer[] = Array.isArray(body?.answers)
@@ -27,8 +28,8 @@ export async function POST(req: Request) {
   const attemptId = typeof body?.attemptId === "string" ? body.attemptId.slice(0, 64) : undefined;
   const ds = dataset(set);
 
-  if (!isValidNumber(number)) {
-    return NextResponse.json({ error: "番号が正しくありません" }, { status: 400 });
+  if (number === null) {
+    return NextResponse.json({ error: "個人用のURLから開き直してください" }, { status: 401 });
   }
   if (mode === "practice" && !isValidSection(section, set)) {
     return NextResponse.json({ error: "セクションが正しくありません" }, { status: 400 });

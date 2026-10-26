@@ -220,7 +220,7 @@ function rankLabel(rank: number | null) {
 }
 
 export default function RankingPage() {
-  const { set, corner, ready, changeSet, openStudy } = useSet();
+  const { set, corner, visible, ready, changeSet, openStudy } = useSet();
   const [players, setPlayers] = useState<Player[] | null>(null);
   const [error, setError] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("average");
@@ -256,21 +256,19 @@ export default function RankingPage() {
       .catch(() => setError("データを読み込めませんでした。再読み込みしてください。"));
   }, [set, ready]);
 
-  // 英単語・英熟語・学習時間のコーナー切り替え
-  const corners = (
+  // コーナー切り替え（マイページで選んだコーナーだけ。1つだけなら出さない）
+  const corners = visible.length > 1 && (
     <div className="sort-tabs corner-tabs">
-      {SET_IDS.map((s) => (
-        <button
-          key={s}
-          className={corner === s ? "active" : ""}
-          onClick={() => changeSet(s)}
-        >
+      {SET_IDS.filter((s) => visible.includes(s)).map((s) => (
+        <button key={s} className={corner === s ? "active" : ""} onClick={() => changeSet(s)}>
           {SETS[s].icon} {SETS[s].label}
         </button>
       ))}
-      <button className={corner === "study" ? "active" : ""} onClick={openStudy}>
-        ⏱️ 学習時間
-      </button>
+      {visible.includes("study") && (
+        <button className={corner === "study" ? "active" : ""} onClick={openStudy}>
+          ⏱️ 学習時間
+        </button>
+      )}
     </div>
   );
 

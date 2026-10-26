@@ -1,25 +1,12 @@
-// この端末で登録・選択した番号を覚えておき、2回目以降は自動で識別する
-const KEY = "eijukugo:number";
+// ログインしている本人の番号（MeProvider が /api/me で確かめて入れる）。ランキングで「あなた」を示すのに使う
+let current: number | null = null;
 
 export function loadMyNumber(): number | null {
-  try {
-    const v = Number(localStorage.getItem(KEY));
-    return Number.isInteger(v) && v > 0 ? v : null;
-  } catch {
-    return null;
-  }
+  return current;
 }
 
-export function saveMyNumber(n: number) {
-  try {
-    localStorage.setItem(KEY, String(n));
-  } catch {}
-}
-
-export function clearMyNumber() {
-  try {
-    localStorage.removeItem(KEY);
-  } catch {}
+export function setMyNumber(n: number | null) {
+  current = n;
 }
 
 export function formatDate(iso: string) {
