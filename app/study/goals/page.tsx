@@ -178,7 +178,7 @@ export default function StudyGoalsPage() {
       </div>
 
       <p className="center">
-        <Link href="/" className="btn btn-primary">
+        <Link href="/c/study" className="btn btn-primary">
           ⏱️ 学習時間の記録にもどる
         </Link>
       </p>

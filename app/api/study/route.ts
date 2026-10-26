@@ -26,9 +26,13 @@ export async function GET(req: Request) {
   const me = await sessionNumber(req);
   if (me === null) return NextResponse.json(UNAUTHORIZED, { status: 401 });
   const store = getStore();
-  const [users, study] = await Promise.all([store.getUsers(), store.getStudy()]);
+  const [allUsers, study] = await Promise.all([store.getUsers(), store.getStudy()]);
+  // マイページで学習時間を「見せない」にした人は、本人以外には返さない（ランキング・みんなの目標に出さない）
+  const users = allUsers.filter((u) => u.number === me || !u.hidden?.includes("study"));
+  const shown = new Set(users.map((u) => u.number));
   const visible: Record<number, StudyLog> = {};
   for (const [n, log] of Object.entries(study)) {
+    if (!shown.has(Number(n))) continue;
     visible[Number(n)] =
       Number(n) === me
         ? log

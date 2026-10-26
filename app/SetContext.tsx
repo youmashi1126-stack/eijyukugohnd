@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { EXTRA, EXTRA_CORNERS, isExtraCorner, parseSet, SET_IDS, SETS, type Corner, type ExtraCorner, type SetId } from "@/lib/sets";
 import { useMe } from "./MeContext";
@@ -100,39 +101,44 @@ export function SetBadge() {
   const { set, corner, ready } = useSet();
   if (!ready) return null;
   return (
-    <Link href="/" className="set-badge" title="ホームでコーナーを切り替え">
+    <Link href={`/c/${corner}`} className="set-badge" title="このコーナーのページへ">
       {isExtraCorner(corner) ? `${EXTRA[corner].icon} ${EXTRA[corner].label}` : `${SETS[set].icon} ${SETS[set].label}モード`}
     </Link>
   );
 }
 
-// ヘッダーのメニュー。練習・復習は英単語・英熟語・中学英語のコーナーだけ
+// ヘッダーのメニュー。練習・復習は、英単語・英熟語・中学英語のコーナーのページ・練習・テストを開いているときだけ
 export function SiteNav() {
   const { corner, ready } = useSet();
+  const pathname = usePathname();
   if (!ready) return null;
+  const inSet = !isExtraCorner(corner) && (pathname.startsWith("/c/") || pathname.startsWith("/practice") || pathname.startsWith("/test"));
   return (
     <nav className="site-nav">
       <Link href="/">🏠 ホーム</Link>
-      {!isExtraCorner(corner) && (
+      {inSet && (
         <>
           <Link href="/practice">📚 練習</Link>
           <Link href="/test?mode=review">🔁 復習</Link>
         </>
       )}
       <Link href="/ranking">🏆 ランキング</Link>
+      <Link href="/friends">👥 みんな</Link>
       <Link href="/mypage">👤 マイページ</Link>
     </nav>
   );
 }
 
-// ホーム上部のコーナー切り替え（マイページで選んだコーナーだけ。1つだけなら出さない）
+// コーナーのページ上部の切り替え（マイページで選んだコーナーだけ。1つだけなら出さない）。押すとそのコーナーのページへ
 export function SetSwitch() {
-  const { corner, visible, changeSet, openCorner } = useSet();
+  const { corner, visible } = useSet();
+  const router = useRouter();
+  const go = (c: Corner) => router.push(`/c/${c}`);
   if (visible.length <= 1) return null;
   return (
     <div className={`set-switch multi ${visible.length > 4 ? "many" : ""}`} role="tablist" aria-label="コーナー切り替え" style={{ "--cols": visible.length } as React.CSSProperties}>
       {SET_IDS.filter((s) => visible.includes(s)).map((s) => (
-        <button key={s} role="tab" aria-selected={corner === s} className={`set-tab ${s} ${corner === s ? "active" : ""}`} onClick={() => changeSet(s)}>
+        <button key={s} role="tab" aria-selected={corner === s} className={`set-tab ${s} ${corner === s ? "active" : ""}`} onClick={() => go(s)}>
           <span className="set-tab-icon">{SETS[s].icon}</span>
           <span>
             <b>{SETS[s].label}</b>
@@ -141,7 +147,7 @@ export function SetSwitch() {
         </button>
       ))}
       {EXTRA_CORNERS.filter((c) => visible.includes(c)).map((c) => (
-        <button key={c} role="tab" aria-selected={corner === c} className={`set-tab ${c} ${corner === c ? "active" : ""}`} onClick={() => openCorner(c)}>
+        <button key={c} role="tab" aria-selected={corner === c} className={`set-tab ${c} ${corner === c ? "active" : ""}`} onClick={() => go(c)}>
           <span className="set-tab-icon">{EXTRA[c].icon}</span>
           <span>
             <b>{EXTRA[c].label}</b>

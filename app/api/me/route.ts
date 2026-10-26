@@ -13,15 +13,15 @@ export async function GET(req: Request) {
   const number = await sessionNumber(req);
   if (number === null) return NextResponse.json(UNAUTHORIZED, { status: 401 });
   const user = await getStore().getUser(number);
-  return NextResponse.json({ number, nickname: user?.nickname ?? null, corners: user?.corners ?? null });
+  return NextResponse.json({ number, nickname: user?.nickname ?? null, corners: user?.corners ?? null, hidden: user?.hidden ?? [] });
 }
 
-// マイページ：ニックネームと表示するコーナーの変更
+// マイページ：ニックネーム・表示するコーナー・ほかの人に見せないコーナーの変更
 export async function POST(req: Request) {
   const number = await sessionNumber(req);
   if (number === null) return NextResponse.json(UNAUTHORIZED, { status: 401 });
   const body = await req.json().catch(() => null);
-  const patch: { nickname?: string; corners?: string[] } = {};
+  const patch: { nickname?: string; corners?: string[]; hidden?: string[] } = {};
 
   if (body?.nickname !== undefined) {
     const nickname = typeof body.nickname === "string" ? body.nickname.trim() : "";
@@ -37,8 +37,11 @@ export async function POST(req: Request) {
     }
     patch.corners = corners;
   }
+  if (body?.hidden !== undefined) {
+    patch.hidden = Array.isArray(body.hidden) ? CORNERS.filter((c) => body.hidden.includes(c)) : [];
+  }
 
   const user = await getStore().updateUser(number, patch);
   if (!user) return NextResponse.json({ error: "まだニックネームが登録されていません" }, { status: 404 });
-  return NextResponse.json({ number, nickname: user.nickname, corners: user.corners ?? null });
+  return NextResponse.json({ number, nickname: user.nickname, corners: user.corners ?? null, hidden: user.hidden ?? [] });
 }

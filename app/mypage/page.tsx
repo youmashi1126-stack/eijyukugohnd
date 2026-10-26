@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { CORNERS, SETS, type Corner } from "@/lib/sets";
 import { NICKNAME_MAX } from "@/lib/types";
@@ -30,6 +31,8 @@ export default function MyPage() {
   const [corners, setCorners] = useState<Corner[]>(me?.corners ?? CORNERS);
   const [nameState, setNameState] = useState<SaveState>(null);
   const [cornerState, setCornerState] = useState<SaveState>(null);
+  const [hidden, setHidden] = useState<Corner[]>(me?.hidden ?? []);
+  const [hiddenState, setHiddenState] = useState<SaveState>(null);
   const [busy, setBusy] = useState(false);
   if (!me) return null;
 
@@ -50,6 +53,9 @@ export default function MyPage() {
   const saveCorners = () => run(async () => setMe(await save({ corners })), setCornerState, "✓ 表示するコーナーを保存しました");
   const toggle = (c: Corner) => setCorners((cs) => (cs.includes(c) ? cs.filter((x) => x !== c) : CORNERS.filter((x) => cs.includes(x) || x === c)));
   const cornersChanged = corners.join() !== me.corners.join();
+  const saveHidden = () => run(async () => setMe(await save({ hidden })), setHiddenState, "✓ みんなに見せないものを保存しました");
+  const toggleHidden = (c: Corner) => setHidden((hs) => (hs.includes(c) ? hs.filter((x) => x !== c) : CORNERS.filter((x) => hs.includes(x) || x === c)));
+  const hiddenChanged = hidden.join() !== me.hidden.join();
 
   return (
     <>
@@ -101,6 +107,30 @@ export default function MyPage() {
         </div>
         {corners.length === 0 && <p className="error">1つ以上選んでください</p>}
         {cornerState && <p className={cornerState.kind === "ok" ? "save-ok" : "error"}>{cornerState.text}</p>}
+      </div>
+
+      <div className="card">
+        <h2>🙈 みんなに見せないもの</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          チェックしたものは、みんなの学習（友達のページ）に出なくなります。英単語・英熟語・中学英語はランキングに、学習時間はランキングとみんなの目標にも出なくなります。自分のホームには出ます。
+        </p>
+        <div className="corner-choices">
+          {CORNERS.map((c) => (
+            <label key={c} className={`corner-choice ${hidden.includes(c) ? "on" : ""}`}>
+              <input type="checkbox" checked={hidden.includes(c)} onChange={() => toggleHidden(c)} />
+              {CORNER_LABEL[c]}
+            </label>
+          ))}
+        </div>
+        <div className="btn-row">
+          <button className="btn btn-primary" disabled={busy || !hiddenChanged} onClick={saveHidden}>
+            保存する
+          </button>
+          <Link className="btn" href={`/friends/${me.number}`}>
+            ほかの人からの見え方
+          </Link>
+        </div>
+        {hiddenState && <p className={hiddenState.kind === "ok" ? "save-ok" : "error"}>{hiddenState.text}</p>}
       </div>
     </>
   );
