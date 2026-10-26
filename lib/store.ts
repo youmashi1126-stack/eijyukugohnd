@@ -51,11 +51,37 @@ export type Dump = {
 
 export type ImportCount = { users: number; records: number };
 
+export type UserPatch = { nickname?: string; corners?: string[] };
+
+// 以前の番号（1〜35）は 301〜335 番に移した。移す前のバックアップを読み込むときも同じように移す
+const RENUMBER_FROM = 1;
+const RENUMBER_TO = 35;
+const RENUMBER_SHIFT = 300;
+const renumber = (n: number) => (n >= RENUMBER_FROM && n <= RENUMBER_TO ? n + RENUMBER_SHIFT : n);
+const renumberKey = (k: string) => String(renumber(Number(k)));
+
+export function renumberDump(dump: Dump): Dump {
+  const shift = <T,>(data: Record<string, T>) => Object.fromEntries(Object.entries(data).map(([k, v]) => [renumberKey(k), v]));
+  return {
+    ...dump,
+    users: Object.fromEntries(Object.entries(dump.users).map(([k, u]) => [renumberKey(k), { ...u, number: renumber(Number(k)) }])),
+    records: dump.records.map((r) => ({ ...r, data: shift(r.data) })),
+    study: dump.study && shift(dump.study),
+  };
+}
+
+function applyUserPatch(user: User, patch: UserPatch): User {
+  return { ...user, ...(patch.nickname !== undefined && { nickname: patch.nickname }), ...(patch.corners !== undefined && { corners: patch.corners }) };
+}
+
 interface Store {
   readonly persistent: boolean;
   readonly kind: "d1" | "redis" | "local";
   getUsers(): Promise<User[]>;
+  getUser(number: number): Promise<User | null>;
   hasUser(number: number): Promise<boolean>;
+  // ニックネーム・表示するコーナーの変更（未登録なら null）
+  updateUser(number: number, patch: UserPatch): Promise<User | null>;
   // 番号が未使用なら登録して true、使用済みなら false
   addUser(user: User): Promise<boolean>;
   getAll(set: SetId): Promise<AllData>;
@@ -183,6 +209,7 @@ const USERS_KEY = "eijukugo:users";
 const ADMIN_KEY = "eijukugo:admin";
 const STUDY_KEY = "eijukugo:study";
 const MIGRATED_KEY = "eijukugo:v2:migrated";
+const RENUMBERED_KEY = "eijukugo:renumbered";
 // 英熟語は以前からのキーをそのまま使い、英単語・中学英語は別のキーに保存する
 function redisKey(set: SetId, kind: Kind): string | null {
   if (kind === "wrong") return set === "idiom" ? "eijukugo:v2:wrong" : null;
@@ -212,9 +239,33 @@ class RedisStore implements Store {
 
   constructor(private redis: Redis) {}
 
+  // 1〜35番を 301〜335番へ一度だけ移す（登録者・すべての記録・学習時間）
+  private async renumber() {
+    if (await this.redis.get(RENUMBERED_KEY)) return;
+    const keys = [USERS_KEY, STUDY_KEY];
+    for (const set of SET_IDS) for (const kind of KINDS) keys.push(redisKey(set, kind) ?? "");
+    for (const key of keys.filter(Boolean)) {
+      const all = (await this.redis.hgetall<Record<string, unknown>>(key)) ?? {};
+      const p = this.redis.pipeline();
+      let moved = false;
+      for (const [f, v] of Object.entries(all)) {
+        const to = renumberKey(f);
+        if (to === f) continue;
+        let value = typeof v === "string" ? v : JSON.stringify(v);
+        if (key === USERS_KEY) value = JSON.stringify({ ...parse<User>(v, {} as User), number: Number(to) });
+        p.hset(key, { [to]: value });
+        p.hdel(key, f);
+        moved = true;
+      }
+      if (moved) await p.exec();
+    }
+    await this.redis.set(RENUMBERED_KEY, new Date().toISOString());
+  }
+
   // 最初の形式のデータがあれば一度だけ新形式へ移す
   private async migrate() {
     if (this.migrated) return;
+    await this.renumber();
     if (await this.redis.get(MIGRATED_KEY)) {
       this.migrated = true;
       return;
@@ -247,15 +298,32 @@ class RedisStore implements Store {
   }
 
   async getUsers() {
+    await this.migrate();
     const all = await this.redis.hgetall<Record<string, unknown>>(USERS_KEY);
     return Object.values(all ?? {}).map((v) => parse<User>(v, {} as User));
   }
 
+  async getUser(number: number) {
+    await this.migrate();
+    const v = await this.redis.hget(USERS_KEY, String(number));
+    return v ? parse<User>(v, {} as User) : null;
+  }
+
   async hasUser(number: number) {
+    await this.migrate();
     return (await this.redis.hexists(USERS_KEY, String(number))) === 1;
   }
 
+  async updateUser(number: number, patch: UserPatch) {
+    const user = await this.getUser(number);
+    if (!user) return null;
+    const next = applyUserPatch(user, patch);
+    await this.redis.hset(USERS_KEY, { [String(number)]: JSON.stringify(next) });
+    return next;
+  }
+
   async addUser(user: User) {
+    await this.migrate();
     const ok = await this.redis.hsetnx(USERS_KEY, String(user.number), JSON.stringify(user));
     return ok === 1;
   }
@@ -376,6 +444,7 @@ class RedisStore implements Store {
   }
 
   async getStudy() {
+    await this.migrate();
     const all = await this.redis.hgetall<Record<string, unknown>>(STUDY_KEY);
     const out: Record<number, StudyLog> = {};
     for (const [n, v] of Object.entries(all ?? {})) out[Number(n)] = toStudyLog(parse<unknown>(v, null));
@@ -383,6 +452,7 @@ class RedisStore implements Store {
   }
 
   async updateStudy(number: number, patch: StudyPatch) {
+    await this.migrate();
     const f = String(number);
     const next = applyStudyPatch(toStudyLog(parse<unknown>(await this.redis.hget(STUDY_KEY, f), null)), patch);
     await this.redis.hset(STUDY_KEY, { [f]: JSON.stringify(next) });
@@ -426,12 +496,25 @@ class D1Store implements Store {
   private init() {
     this.ready ??= this.db
       .batch(D1_SCHEMA.map((s) => this.db.prepare(s)))
-      .then(() => undefined)
+      .then(() => this.renumber())
       .catch((e) => {
         this.ready = null;
         throw e;
       });
     return this.ready;
+  }
+
+  // 1〜35番を 301〜335番へ一度だけ移す（登録者・すべての記録・学習時間を1つのまとまりで更新）
+  private async renumber() {
+    if (await this.db.prepare("SELECT 1 AS ok FROM settings WHERE key = 'renumbered'").first()) return;
+    const range = `number BETWEEN ${RENUMBER_FROM} AND ${RENUMBER_TO}`;
+    await this.db.batch([
+      // SET の右辺は更新前の値で計算されるので、data の番号と number 列が同じ新しい番号になる
+      this.db.prepare(`UPDATE users SET data = json_set(data, '$.number', number + ${RENUMBER_SHIFT}), number = number + ${RENUMBER_SHIFT} WHERE ${range}`),
+      this.db.prepare(`UPDATE records SET number = number + ${RENUMBER_SHIFT} WHERE ${range}`),
+      this.db.prepare(`UPDATE study SET number = number + ${RENUMBER_SHIFT} WHERE ${range}`),
+      this.db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('renumbered', ?)").bind(new Date().toISOString()),
+    ]);
   }
 
   private async rows(set: SetId, kinds: Kind[], number?: number) {
@@ -451,9 +534,23 @@ class D1Store implements Store {
     return results.map((r) => JSON.parse(r.data) as User);
   }
 
+  async getUser(number: number) {
+    await this.init();
+    const row = await this.db.prepare("SELECT data FROM users WHERE number = ?").bind(number).first<{ data: string }>();
+    return row ? (JSON.parse(row.data) as User) : null;
+  }
+
   async hasUser(number: number) {
     await this.init();
     return !!(await this.db.prepare("SELECT 1 AS ok FROM users WHERE number = ?").bind(number).first());
+  }
+
+  async updateUser(number: number, patch: UserPatch) {
+    const user = await this.getUser(number);
+    if (!user) return null;
+    const next = applyUserPatch(user, patch);
+    await this.db.prepare("UPDATE users SET data = ? WHERE number = ?").bind(JSON.stringify(next), number).run();
+    return next;
   }
 
   async addUser(user: User) {
@@ -587,6 +684,7 @@ type Db = {
   sets: Partial<Record<SetId, SetData>>;
   admin?: string;
   study?: Record<string, StudyLog>;
+  renumbered?: boolean;
   // 以前の形式（英熟語のみ）
   results?: Record<string, TestResult[]>;
   practice?: Record<string, Record<string, number>>;
@@ -613,6 +711,19 @@ class LocalStore implements Store {
     this.db.sets ??= {};
     if (!this.db.sets.idiom && (this.db.results || this.db.wrong)) {
       this.db.sets.idiom = { results: this.db.results ?? {}, practice: this.db.practice ?? {}, wrong: this.db.wrong ?? {} };
+    }
+    // 1〜35番を 301〜335番へ一度だけ移す
+    if (!this.db.renumbered) {
+      const moved = renumberDump(makeDump(this.db.users, [], this.db.study ?? {}));
+      this.db.users = moved.users;
+      this.db.study = moved.study;
+      for (const d of Object.values(this.db.sets)) {
+        for (const kind of Object.keys(d) as Kind[]) {
+          d[kind] = Object.fromEntries(Object.entries(d[kind] ?? {}).map(([k, v]) => [renumberKey(k), v]));
+        }
+      }
+      this.db.renumbered = true;
+      this.save();
     }
   }
 
@@ -641,8 +752,20 @@ class LocalStore implements Store {
     return Object.values(this.db.users);
   }
 
+  async getUser(number: number) {
+    return this.db.users[number] ?? null;
+  }
+
   async hasUser(number: number) {
     return !!this.db.users[number];
+  }
+
+  async updateUser(number: number, patch: UserPatch) {
+    const user = this.db.users[number];
+    if (!user) return null;
+    this.db.users[number] = applyUserPatch(user, patch);
+    this.save();
+    return this.db.users[number];
   }
 
   async addUser(user: User) {

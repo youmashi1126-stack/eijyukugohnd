@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { hashPassword, isDump, slowDown, verifyPassword } from "@/lib/admin";
-import { getStore } from "@/lib/store";
+import { getStore, renumberDump } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,8 @@ export async function POST(req: Request) {
     if (!isDump(body?.data)) {
       return NextResponse.json({ error: "このアプリのバックアップファイルではないか、内容が壊れています" }, { status: 400 });
     }
-    return NextResponse.json({ ok: true, ...(await store.importData(body.data)) });
+    // 番号を移す前（1〜35番）のバックアップも、301〜335番として読み込む
+    return NextResponse.json({ ok: true, ...(await store.importData(renumberDump(body.data))) });
   }
 
   return NextResponse.json({ error: "不明な操作です" }, { status: 400 });

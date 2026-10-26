@@ -2,15 +2,13 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { clearMyNumber, formatDate, loadMyNumber, saveMyNumber } from "@/lib/me";
+import { formatDate, loadMyNumber } from "@/lib/me";
 import { SETS, type SetId } from "@/lib/sets";
 import { titleFor } from "@/lib/titles";
-import { MASTERY_GOAL, MASTERY_POINTS, MAX_NUMBER, MIN_NUMBER, practiceSummary, type Player } from "@/lib/types";
+import { MASTERY_GOAL, MASTERY_POINTS, practiceSummary, type Player } from "@/lib/types";
 import { SetSwitch, useSet } from "./SetContext";
 import StorageWarning from "./StorageWarning";
 import StudyRecord from "./study/StudyRecord";
-
-const NUMBERS = Array.from({ length: MAX_NUMBER - MIN_NUMBER + 1 }, (_, i) => i + MIN_NUMBER);
 
 function greeting() {
   const h = new Date().getHours();
@@ -22,7 +20,6 @@ function greeting() {
 export default function Home() {
   const { set, corner, ready } = useSet();
   const [players, setPlayers] = useState<Player[] | null>(null);
-  const [myNumber, setMyNumber] = useState<number | null>(null);
   const [loadError, setLoadError] = useState("");
   const [persistent, setPersistent] = useState(true);
 
@@ -31,10 +28,7 @@ export default function Home() {
       const res = await fetch(`/api/players?set=${set}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !Array.isArray(data.players)) throw new Error("load failed");
-      const list: Player[] = data.players;
-      // 一覧に見つからない番号は登録画面を出す（一時的な不具合で端末の記憶を消さないよう、ここでは消さない）
-      setMyNumber(loadMyNumber());
-      setPlayers(list);
+      setPlayers(data.players);
       setPersistent(data.persistent !== false);
     } catch {
       setLoadError("データを読み込めませんでした。再読み込みしてください。");
@@ -48,46 +42,19 @@ export default function Home() {
   if (loadError) return <p className="error">{loadError}</p>;
   if (!players) return <p className="muted center">読み込み中…</p>;
 
-  const me = players.find((p) => p.number === myNumber);
-  if (me) {
-    return (
-      <>
-        <StorageWarning persistent={persistent} />
-        <SetSwitch />
-        {corner === "study" ? (
-          <StudyRecord />
-        ) : (
-          <Welcome
-            key={set}
-            me={me}
-            set={set}
-            total={players.filter((p) => p.count > 0).length}
-            onSwitch={() => {
-              clearMyNumber();
-              setMyNumber(null);
-            }}
-          />
-        )}
-      </>
-    );
-  }
-
+  // ログインしている本人（個人用URLで開いた番号）。ニックネームの登録は AccountGate で済んでいる
+  const me = players.find((p) => p.number === loadMyNumber());
+  if (!me) return <p className="error">データを読み込めませんでした。再読み込みしてください。</p>;
   return (
     <>
       <StorageWarning persistent={persistent} />
-      <Register
-        players={players}
-        onDone={(n) => {
-          saveMyNumber(n);
-          setMyNumber(n);
-          load();
-        }}
-      />
+      <SetSwitch />
+      {corner === "study" ? <StudyRecord /> : <Welcome key={set} me={me} set={set} total={players.filter((p) => p.count > 0).length} />}
     </>
   );
 }
 
-function Welcome({ me, set, total, onSwitch }: { me: Player; set: SetId; total: number; onSwitch: () => void }) {
+function Welcome({ me, set, total }: { me: Player; set: SetId; total: number }) {
   const title = titleFor(me.average);
   const recent = me.history.slice(-10);
   const info = SETS[set];
@@ -195,123 +162,6 @@ function Welcome({ me, set, total, onSwitch }: { me: Player; set: SetId; total: 
           </div>
         </div>
       )}
-
-      <p className="muted center">
-        No.{me.number}・{me.nickname} ではない場合は{" "}
-        <button className="link-btn" onClick={onSwitch}>
-          番号を選び直す
-        </button>
-      </p>
-    </>
-  );
-}
-
-function Register({ players, onDone }: { players: Player[]; onDone: (n: number) => void }) {
-  const [selected, setSelected] = useState<number | null>(null);
-  const [nickname, setNickname] = useState("");
-  const [error, setError] = useState("");
-  const [sending, setSending] = useState(false);
-
-  const taken = new Map(players.map((p) => [p.number, p.nickname]));
-  const selectedName = selected !== null ? taken.get(selected) : undefined;
-
-  async function register() {
-    if (selected === null) return;
-    setSending(true);
-    setError("");
-    try {
-      const res = await fetch("/api/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ number: selected, nickname }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? "登録できませんでした");
-        return;
-      }
-      onDone(selected);
-    } catch {
-      setError("通信に失敗しました");
-    } finally {
-      setSending(false);
-    }
-  }
-
-  return (
-    <>
-      <div className="card hero">
-        <h1>⚡ 英語チャレンジへようこそ！</h1>
-        <p className="muted" style={{ margin: 0 }}>
-          システム英単語2032問・ターゲット英熟語1000問・中学英語1357問からランダム100問の3択テスト。発音つきで、間違えた問題は復習コーナーで攻略できます。
-        </p>
-      </div>
-      <div className="card">
-        <h2>
-          👇 自分の番号を選んでね（{MIN_NUMBER}〜{MAX_NUMBER}）
-        </h2>
-        <p className="muted">
-          ニックネームを登録すると、次回からこの端末で自動ログインします。登録済みの番号を選ぶと、別の端末からでも続きができます。
-        </p>
-
-        <div className="number-grid">
-          {NUMBERS.map((n) => (
-            <button
-              key={n}
-              className={`number-cell ${taken.has(n) ? "taken" : ""} ${selected === n ? "selected" : ""}`}
-              onClick={() => {
-                setSelected(n);
-                setError("");
-              }}
-            >
-              {n}
-              <small>{taken.get(n) ?? "未登録"}</small>
-            </button>
-          ))}
-        </div>
-
-        {selected !== null && selectedName === undefined && (
-          <div style={{ marginTop: 20 }}>
-            <label htmlFor="nickname" style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>
-              {selected}番のニックネーム（12文字まで・ランキングに表示されます）
-            </label>
-            <input
-              id="nickname"
-              className="input"
-              value={nickname}
-              maxLength={12}
-              onChange={(e) => setNickname(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && nickname.trim()) register();
-              }}
-              placeholder="例：たろう"
-            />
-            <div className="btn-row">
-              <button className="btn btn-primary btn-large" disabled={!nickname.trim() || sending} onClick={register}>
-                {sending ? "登録中…" : "🎉 登録してはじめる"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {selected !== null && selectedName !== undefined && (
-          <div style={{ marginTop: 20 }}>
-            <p>
-              <b>
-                {selected}番・{selectedName}
-              </b>{" "}
-              は登録済みです。あなたの番号ならこのまま続けられます。
-            </p>
-            <div className="btn-row">
-              <button className="btn btn-primary btn-large" onClick={() => onDone(selected)}>
-                👋 {selectedName} として続ける
-              </button>
-            </div>
-          </div>
-        )}
-
-        {error && <p className="error">{error}</p>}
-      </div>
     </>
   );
 }

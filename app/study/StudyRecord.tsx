@@ -16,8 +16,11 @@ import {
   weekLabel,
   weekStart,
   weekTotal,
+  charCount,
+  NOTE_MAX,
   type Mood,
   type StudyLog,
+  type WeekNote,
 } from "@/lib/study";
 
 type Me = { number: number; nickname: string };
@@ -64,7 +67,7 @@ export default function StudyRecord() {
     return (
       <div className="card center">
         <h2>⏱️ 学習時間記録</h2>
-        <p className="muted">学習時間を記録するには、先にホームで自分の番号を選んでください。</p>
+        <p className="muted">学習時間を記録するには、個人用のURLから開いてニックネームを登録してください。</p>
         <Link href="/" className="btn btn-primary">
           🏠 ホームへ
         </Link>
@@ -103,6 +106,13 @@ export default function StudyRecord() {
     if (minutes === null) delete goals[week];
     else goals[week] = minutes;
     save(`goal:${week}`, { type: "goal", week, minutes }, { ...log, goals });
+  }
+
+  function saveNotes(quant: string, qual: string) {
+    const notes = { ...log.notes };
+    if (quant.trim() || qual.trim()) notes[week] = { quant: quant.trim(), qual: qual.trim() };
+    else delete notes[week];
+    save(`notes:${week}`, { type: "notes", week, quant, qual }, { ...log, notes });
   }
 
   const thisWeek = weekStart(today);
@@ -156,6 +166,12 @@ export default function StudyRecord() {
         </div>
 
         <GoalEditor key={`${week}:${goal}`} goal={goal} own={log.goals[week] !== undefined} onSave={saveGoal} state={saving[`goal:${week}`]} />
+        <NotesEditor
+          key={`${week}:${log.notes[week]?.quant ?? ""}:${log.notes[week]?.qual ?? ""}`}
+          note={log.notes[week]}
+          onSave={saveNotes}
+          state={saving[`notes:${week}`]}
+        />
 
         <div className="goal-bar" aria-label="目標までの進み具合">
           <div style={{ width: `${goal ? Math.min(100, (total / goal) * 100) : 0}%` }} className={rate !== null && rate >= 100 ? "done" : ""} />
@@ -241,12 +257,13 @@ export default function StudyRecord() {
                           key={m.id}
                           role="radio"
                           aria-checked={day?.mood === m.id}
+                          aria-label={m.label}
+                          title={m.label}
                           className={`mood-btn ${m.id} ${day?.mood === m.id ? "active" : ""}`}
                           // もう一度押すと選択を外す
                           onClick={() => saveDay(d, { mood: day?.mood === m.id ? null : m.id })}
                         >
                           <span className="mood-icon">{m.icon}</span>
-                          {m.label}
                         </button>
                       ))}
                     </div>
@@ -292,12 +309,56 @@ export default function StudyRecord() {
         </div>
       </div>
 
-      <p className="center">
+      <p className="center btn-row" style={{ justifyContent: "center" }}>
+        <Link href="/study/goals" className="btn">
+          👥 今週のみんなの目標
+        </Link>
         <Link href="/ranking" className="btn btn-primary">
           🏆 学習時間ランキングを見る
         </Link>
       </p>
     </>
+  );
+}
+
+// その週の定量ゴール（数で測れる目標）と定性ゴール（取り組み方などの目標）。どちらも30字まで
+function NotesEditor({ note, onSave, state }: { note?: WeekNote; onSave: (quant: string, qual: string) => void; state?: SaveState }) {
+  const [quant, setQuant] = useState(note?.quant ?? "");
+  const [qual, setQual] = useState(note?.qual ?? "");
+  const changed = quant.trim() !== (note?.quant ?? "") || qual.trim() !== (note?.qual ?? "");
+  const tooLong = charCount(quant) > NOTE_MAX || charCount(qual) > NOTE_MAX;
+  const field = (id: string, label: string, hint: string, value: string, set: (v: string) => void) => (
+    <div className="note-field">
+      <label htmlFor={id}>{label}</label>
+      {/* 30字が全部見えるよう2行の欄にする（改行は入れられない） */}
+      <textarea
+        id={id}
+        className="input note-text"
+        rows={2}
+        value={value}
+        maxLength={NOTE_MAX}
+        placeholder={hint}
+        onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
+        onChange={(e) => set(e.target.value.replace(/[\r\n]/g, ""))}
+      />
+      <span className={`note-count ${charCount(value) > NOTE_MAX ? "over" : ""}`}>
+        {charCount(value)}/{NOTE_MAX}
+      </span>
+    </div>
+  );
+  return (
+    <div className="notes-editor">
+      {field("note-quant", "📏 定量ゴール", "例：英単語テストで80点以上を3回", quant, setQuant)}
+      {field("note-qual", "💭 定性ゴール", "例：間違えた単語はその日のうちに復習する", qual, setQual)}
+      <div className="notes-actions">
+        <button className="btn btn-primary goal-save" disabled={!changed || tooLong} onClick={() => onSave(quant, qual)}>
+          ゴールを保存
+        </button>
+        <span className={`save-state ${state ?? ""}`}>
+          {state === "saving" ? "保存中…" : state === "saved" ? "✓ 保存しました" : state === "error" ? "⚠️ 保存できませんでした" : ""}
+        </span>
+      </div>
+    </div>
   );
 }
 

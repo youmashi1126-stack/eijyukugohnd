@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { M_PLUS_Rounded_1c } from "next/font/google";
 import Link from "next/link";
+import { AccountGate, MeProvider } from "./MeContext";
 import { SetBadge, SetProvider, setThemeScript, SiteNav } from "./SetContext";
 import SoundControls from "./SoundControls";
 import "./globals.css";
@@ -21,17 +22,21 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: setThemeScript }} />
       </head>
       <body>
-        <SetProvider>
-          <header className="site-header">
-            <Link href="/" className="brand">
-              <span className="brand-icon">⚡</span>英語チャレンジ
-            </Link>
-            <SetBadge />
-            <SiteNav />
-            <SoundControls />
-          </header>
-          <main className="container">{children}</main>
-        </SetProvider>
+        <MeProvider>
+          <SetProvider>
+            <header className="site-header">
+              <Link href="/" className="brand">
+                <span className="brand-icon">⚡</span>英語チャレンジ
+              </Link>
+              <SetBadge />
+              <SiteNav />
+              <SoundControls />
+            </header>
+            <main className="container">
+              <AccountGate>{children}</AccountGate>
+            </main>
+          </SetProvider>
+        </MeProvider>
       </body>
     </html>
   );

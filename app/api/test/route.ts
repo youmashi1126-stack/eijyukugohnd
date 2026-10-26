@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { generateTest, sectionItems } from "@/lib/datasets";
 import { parseSet } from "@/lib/sets";
+import { sessionNumber } from "@/lib/auth";
 import { getStore } from "@/lib/store";
-import { isValidNumber, isValidSection, PRACTICE_QUESTION_COUNT, REVIEW_COUNT } from "@/lib/types";
+import { isValidSection, PRACTICE_QUESTION_COUNT, REVIEW_COUNT } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -26,9 +27,9 @@ export async function GET(req: Request) {
   }
 
   // 復習コーナー：復習すべき問題からランダムに15問
-  const number = Number(params.get("number"));
-  if (!isValidNumber(number)) {
-    return NextResponse.json({ error: "番号が正しくありません" }, { status: 400 });
+  const number = await sessionNumber(req);
+  if (number === null) {
+    return NextResponse.json({ error: "個人用のURLから開き直してください" }, { status: 401 });
   }
   const ids = await getStore().getReviewIds(number, set);
   return NextResponse.json({ questions: generateTest(set, ids, REVIEW_COUNT), remaining: ids.length });
