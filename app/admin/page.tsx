@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Accounts from "./Accounts";
 
 // 管理者ページ：データのバックアップ（ファイルに保存）と読み込み（アップロード）
 type Status = { hasPassword: boolean; storage: string; persistent: boolean };
@@ -216,6 +217,13 @@ export default function AdminPage() {
             <h2>🔑 管理者パスワード</h2>
             <input className="input" type="password" placeholder="パスワード" value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
+
+          <Accounts
+            load={async () => {
+              if (!password) throw new Error("先に管理者パスワードを入力してください");
+              return post({ action: "accounts", password });
+            }}
+          />
 
           <div className="card">
             <h2>⬇️ データをダウンロード</h2>
