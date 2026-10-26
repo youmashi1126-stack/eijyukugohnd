@@ -56,7 +56,9 @@ export function isDump(v: unknown): v is Dump {
     Object.keys(d.users).every((n) => /^\d+$/.test(n)) &&
     (d.study === undefined || (!!d.study && typeof d.study === "object" && Object.keys(d.study).every((n) => /^\d+$/.test(n)))) &&
     (d.materials === undefined ||
-      (!!d.materials && typeof d.materials === "object" && Object.keys(d.materials).every((n) => /^\d+$/.test(n))))
+      (!!d.materials && typeof d.materials === "object" && Object.keys(d.materials).every((n) => /^\d+$/.test(n)))) &&
+    (d.pastExams === undefined ||
+      (!!d.pastExams && typeof d.pastExams === "object" && Object.keys(d.pastExams).every((n) => /^\d+$/.test(n))))
   );
 }
 

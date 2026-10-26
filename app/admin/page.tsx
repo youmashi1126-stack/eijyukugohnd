@@ -114,6 +114,31 @@ export default function AdminPage() {
       return `ダウンロードしました（${sheets.length}人分のシート・教材 ${books}冊）。`;
     });
 
+  // 過去問演習の記録：登録している人と記録がある人の分を、過去問演習シートと同じ形の Excel に書き出す
+  const downloadPastExams = () =>
+    run(async () => {
+      const data = await post({ action: "pastexams", password });
+      const res = await fetch("/templates/pastexams-template.xlsx");
+      if (!res.ok) throw new Error("Excel のひな形を読み込めませんでした");
+      const { buildPastExamsWorkbook, omittedYears } = await import("@/lib/pastExamsXlsx");
+      const numbers = new Set<number>([...(data.users as { number: number }[]).map((u) => u.number), ...Object.keys(data.pastExams).map(Number)]);
+      const sheets = [...numbers].sort((a, b) => a - b).map((n) => ({ number: n, exams: data.pastExams[n] ?? [] }));
+      const blob = await buildPastExamsWorkbook(await res.arrayBuffer(), sheets, data.today);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `eijukugo-pastexams-${fileStamp()}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+      const univs = sheets.reduce((s, x) => s + x.exams.length, 0);
+      const omitted = sheets.reduce((s, x) => s + omittedYears(x.exams, data.today), 0);
+      return (
+        `ダウンロードしました（${sheets.length}人分のシート・大学 ${univs}校）。` +
+        (omitted ? `Excel の年度の列（10年分）より古い年度の ${omitted}件は書き出していません。` : "")
+      );
+    });
+
   const upload = () =>
     run(async () => {
       if (!file) throw new Error("ファイルを選んでください");
@@ -194,7 +219,7 @@ export default function AdminPage() {
 
           <div className="card">
             <h2>⬇️ データをダウンロード</h2>
-            <p className="muted">登録者・テスト結果・練習の記録・習熟ポイント・学習時間・学習教材を、1つのファイル（JSON）に保存します。</p>
+            <p className="muted">登録者・テスト結果・練習の記録・習熟ポイント・学習時間・学習教材・過去問の記録を、1つのファイル（JSON）に保存します。</p>
             <div className="btn-row">
               <button className="btn btn-primary" disabled={busy || !password} onClick={download}>
                 ダウンロード
@@ -210,6 +235,19 @@ export default function AdminPage() {
             </p>
             <div className="btn-row">
               <button className="btn btn-primary" disabled={busy || !password} onClick={downloadMaterials}>
+                Excel でダウンロード
+              </button>
+            </div>
+          </div>
+
+          <div className="card">
+            <h2>📝 過去問の記録をダウンロード（Excel）</h2>
+            <p className="muted">
+              登録している人と記録がある人の過去問演習を、過去問演習シートと同じ見た目の Excel ファイルに書き出します。1人1シート（シート名は番号）で、
+              年度の見出しはその人のいちばん新しい年度から10年分になります。得点率などは Excel を開いたときに計算されます。
+            </p>
+            <div className="btn-row">
+              <button className="btn btn-primary" disabled={busy || !password} onClick={downloadPastExams}>
                 Excel でダウンロード
               </button>
             </div>

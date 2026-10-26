@@ -11,6 +11,7 @@ const CORNER_LABEL: Record<Corner, string> = {
   jhs: `${SETS.jhs.icon} ${SETS.jhs.label}`,
   study: "⏱️ 学習時間",
   materials: "📒 学習教材",
+  pastexams: "📝 過去問",
 };
 
 type SaveState = { kind: "ok" | "error"; text: string } | null;

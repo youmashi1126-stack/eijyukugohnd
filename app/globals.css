@@ -2719,3 +2719,234 @@ table.ranking {
     font-size: 13px;
   }
 }
+
+/* コーナーの数だけ横に並べる。スマホで5つ以上のときは3列で2段にする */
+.set-switch.multi {
+  grid-template-columns: repeat(var(--cols, 4), 1fr);
+}
+
+@media (max-width: 520px) {
+  .set-switch.multi.many {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* 過去問のコーナー（過去問演習シートと同じ紺色系） */
+[data-set="pastexams"] {
+  --primary: #1e2761;
+  --primary-2: #55617d;
+  --primary-soft: #e7ebf2;
+  --border: #c9d0de;
+  --shadow: 0 8px 24px rgba(30, 39, 97, 0.14);
+  --text: #1a2140;
+  --muted: #55617d;
+}
+
+[data-set="pastexams"] body {
+  background: linear-gradient(160deg, #f4f6fa 0%, #e7ebf2 50%, #f4f6fa 100%) fixed;
+}
+
+.pastexams-hero,
+[data-set="pastexams"] .hero {
+  background: linear-gradient(135deg, #101828 0%, #1e2761 55%, #4a5568 100%);
+}
+
+.set-tab.pastexams.active {
+  border-color: #1e2761;
+  background: linear-gradient(135deg, #e7ebf2, #f4f6fa);
+  box-shadow: 0 6px 18px rgba(30, 39, 97, 0.25);
+}
+
+/* 過去問：科目ごとの年度と得点 */
+.exam-total {
+  margin: 0 0 10px;
+}
+
+.subject-block {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+.subject-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.subject-meta {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.subject-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.subject-stats div {
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  text-align: center;
+}
+
+.subject-stats dt {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.subject-stats dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.subject-stats dd small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.overdue-text {
+  color: #fff;
+  background: #1e2761;
+  border-radius: 6px;
+}
+
+.year-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.year-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.year-select {
+  flex: none;
+  font: inherit;
+  font-weight: 800;
+  padding: 6px 4px;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+}
+
+.score-input {
+  flex: 1;
+  min-width: 0;
+  max-width: 110px;
+  height: 38px;
+  padding: 4px 8px;
+  text-align: right;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.score-full {
+  flex: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.rate-badge {
+  flex: none;
+  min-width: 3.2em;
+  padding: 2px 6px;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.rate-badge.good {
+  background: #1e2761;
+  color: #fff;
+}
+
+.rate-badge.under {
+  background: #e7ebf2;
+  color: #1e2761;
+}
+
+.rate-badge.plain {
+  background: #f4f6fa;
+  color: #1a2140;
+}
+
+.year-remove {
+  flex: none;
+  margin-left: auto;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.add-year {
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 12px;
+  font-size: 14px;
+}
+
+.subject-form {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+}
+
+.subject-form-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+@media (max-width: 380px) {
+  .subject-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* 過去問：スマホでも得点が3〜4桁見えるように、年度の欄を詰めて得点の欄の幅を固定する */
+.year-row {
+  gap: 4px;
+}
+
+.year-select {
+  padding: 6px 2px;
+  font-size: 14px;
+}
+
+.score-input {
+  flex: none;
+  width: 72px;
+  padding: 4px 6px;
+}
+
+.score-input::placeholder {
+  font-size: 13px;
+}
+
+.rate-badge {
+  min-width: 2.9em;
+  padding: 2px 4px;
+}
+
+.year-remove {
+  width: 28px;
+}

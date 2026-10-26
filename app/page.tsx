@@ -9,6 +9,7 @@ import { MASTERY_GOAL, MASTERY_POINTS, practiceSummary, type Player } from "@/li
 import { SetSwitch, useSet } from "./SetContext";
 import StorageWarning from "./StorageWarning";
 import Materials from "./materials/Materials";
+import PastExams from "./pastexams/PastExams";
 import StudyRecord from "./study/StudyRecord";
 
 function greeting() {
@@ -54,6 +55,8 @@ export default function Home() {
         <StudyRecord />
       ) : corner === "materials" ? (
         <Materials />
+      ) : corner === "pastexams" ? (
+        <PastExams />
       ) : (
         <Welcome key={set} me={me} set={set} total={players.filter((p) => p.count > 0).length} />
       )}
