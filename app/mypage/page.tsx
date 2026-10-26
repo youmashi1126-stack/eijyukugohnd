@@ -10,6 +10,7 @@ const CORNER_LABEL: Record<Corner, string> = {
   idiom: `${SETS.idiom.icon} ${SETS.idiom.label}`,
   jhs: `${SETS.jhs.icon} ${SETS.jhs.label}`,
   study: "⏱️ 学習時間",
+  materials: "📒 学習教材",
 };
 
 type SaveState = { kind: "ok" | "error"; text: string } | null;

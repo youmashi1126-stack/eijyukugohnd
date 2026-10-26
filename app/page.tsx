@@ -8,6 +8,7 @@ import { titleFor } from "@/lib/titles";
 import { MASTERY_GOAL, MASTERY_POINTS, practiceSummary, type Player } from "@/lib/types";
 import { SetSwitch, useSet } from "./SetContext";
 import StorageWarning from "./StorageWarning";
+import Materials from "./materials/Materials";
 import StudyRecord from "./study/StudyRecord";
 
 function greeting() {
@@ -49,7 +50,13 @@ export default function Home() {
     <>
       <StorageWarning persistent={persistent} />
       <SetSwitch />
-      {corner === "study" ? <StudyRecord /> : <Welcome key={set} me={me} set={set} total={players.filter((p) => p.count > 0).length} />}
+      {corner === "study" ? (
+        <StudyRecord />
+      ) : corner === "materials" ? (
+        <Materials />
+      ) : (
+        <Welcome key={set} me={me} set={set} total={players.filter((p) => p.count > 0).length} />
+      )}
     </>
   );
 }

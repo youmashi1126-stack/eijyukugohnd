@@ -18,6 +18,16 @@ export function parseSet(v: unknown): SetId {
   return v === "word" || v === "jhs" ? v : "idiom";
 }
 
-// ホームで切り替えるコーナー：英単語・英熟語・中学英語と、学習時間
-export type Corner = SetId | "study";
-export const CORNERS: Corner[] = [...SET_IDS, "study"];
+// ホームで切り替えるコーナー：英単語・英熟語・中学英語と、学習時間・学習教材
+export type ExtraCorner = "study" | "materials";
+export type Corner = SetId | ExtraCorner;
+export const EXTRA_CORNERS: ExtraCorner[] = ["study", "materials"];
+export const CORNERS: Corner[] = [...SET_IDS, ...EXTRA_CORNERS];
+export const EXTRA: Record<ExtraCorner, { icon: string; label: string; sub: string }> = {
+  study: { icon: "⏱️", label: "学習時間", sub: "記録・目標" },
+  materials: { icon: "📒", label: "教材", sub: "進み具合" },
+};
+
+export function isExtraCorner(v: unknown): v is ExtraCorner {
+  return v === "study" || v === "materials";
+}
