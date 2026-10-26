@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { sessionNumber } from "@/lib/auth";
 import { getStore } from "@/lib/store";
 import {
+  canEvaluate,
   charCount,
   isDateString,
+  isEval,
   isMood,
   MAX_DAY_MINUTES,
   MAX_WEEK_GOAL,
@@ -19,7 +21,7 @@ export const dynamic = "force-dynamic";
 const UNAUTHORIZED = { error: "個人用のURLから開き直してください" };
 
 // 全員の学習時間の記録（記録画面・ランキング・みんなの目標で使う）。today は日本時間の今日
-// 定性ゴールは本人だけが見られるよう、他の人の分は外して返す
+// 定性ゴールの文は本人だけが見られるよう、他の人の分は外して返す（◎〇△×の振り返りは返す）
 export async function GET(req: Request) {
   const me = await sessionNumber(req);
   if (me === null) return NextResponse.json(UNAUTHORIZED, { status: 401 });
@@ -30,7 +32,7 @@ export async function GET(req: Request) {
     visible[Number(n)] =
       Number(n) === me
         ? log
-        : { ...log, notes: Object.fromEntries(Object.entries(log.notes).map(([w, note]) => [w, { quant: note.quant, qual: "" }])) };
+        : { ...log, notes: Object.fromEntries(Object.entries(log.notes).map(([w, note]) => [w, { ...note, qual: "" }])) };
   }
   return NextResponse.json({
     users: users.map((u) => ({ number: u.number, nickname: u.nickname })).sort((a, b) => a.number - b.number),
@@ -49,6 +51,7 @@ function isNote(v: unknown): v is string {
 }
 
 // type：day（その日の学習時間・振り返り）／goal（その週の目標時間）／notes（その週の定量・定性ゴール）
+//       eval（定量・定性ゴールの◎〇△×。週の最後の日＝日曜日から）
 // 記録するのはログインしている本人の番号だけ
 export async function POST(req: Request) {
   const number = await sessionNumber(req);
@@ -92,6 +95,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `ゴールは1行・${NOTE_MAX}字以内で入力してください` }, { status: 400 });
     }
     patch = { type: "notes", week, quant, qual };
+  } else if (body?.type === "eval") {
+    const { week, target, value } = body;
+    if (!validWeek(week) || !canEvaluate(week, today)) {
+      return NextResponse.json({ error: "振り返りは週の最後の日（日曜日）からつけられます" }, { status: 400 });
+    }
+    if ((target !== "quant" && target !== "qual") || (value !== null && !isEval(value))) {
+      return NextResponse.json({ error: "振り返りの選び方が正しくありません" }, { status: 400 });
+    }
+    patch = { type: "eval", week, target, value };
   } else {
     return NextResponse.json({ error: "不明な操作です" }, { status: 400 });
   }
