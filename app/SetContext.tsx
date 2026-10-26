@@ -130,7 +130,7 @@ export function SetSwitch() {
   const { corner, visible, changeSet, openCorner } = useSet();
   if (visible.length <= 1) return null;
   return (
-    <div className="set-switch multi" role="tablist" aria-label="コーナー切り替え" style={{ gridTemplateColumns: `repeat(${visible.length}, 1fr)` }}>
+    <div className={`set-switch multi ${visible.length > 4 ? "many" : ""}`} role="tablist" aria-label="コーナー切り替え" style={{ "--cols": visible.length } as React.CSSProperties}>
       {SET_IDS.filter((s) => visible.includes(s)).map((s) => (
         <button key={s} role="tab" aria-selected={corner === s} className={`set-tab ${s} ${corner === s ? "active" : ""}`} onClick={() => changeSet(s)}>
           <span className="set-tab-icon">{SETS[s].icon}</span>

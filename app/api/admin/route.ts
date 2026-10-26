@@ -12,7 +12,7 @@ export async function GET() {
 }
 
 // action：setup（初回のパスワード設定）／export（データの書き出し）／import（ファイルの読み込み）
-//         materials（学習教材の進捗。管理者ページで Excel に書き出す）
+//         materials（学習教材の進捗）／pastexams（過去問演習の記録）。どちらも管理者ページで Excel に書き出す
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const store = getStore();
@@ -45,6 +45,15 @@ export async function POST(req: Request) {
     return NextResponse.json({
       users: users.map((u) => ({ number: u.number, nickname: u.nickname })).sort((a, b) => a.number - b.number),
       materials,
+      today: jstDate(),
+    });
+  }
+
+  if (action === "pastexams") {
+    const [users, pastExams] = await Promise.all([store.getUsers(), store.getPastExams()]);
+    return NextResponse.json({
+      users: users.map((u) => ({ number: u.number, nickname: u.nickname })).sort((a, b) => a.number - b.number),
+      pastExams,
       today: jstDate(),
     });
   }

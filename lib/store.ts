@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { SET_IDS, type SetId } from "./sets";
 import { toMaterials, type Material } from "./materials";
+import { toExams, type Exam } from "./pastExams";
 import { applyStudyPatch, toStudyLog, type StudyLog, type StudyPatch } from "./study";
 import { MASTERY_GOAL, MASTERY_POINTS, type Mastery, type TestResult, type User } from "./types";
 
@@ -50,6 +51,8 @@ export type Dump = {
   study?: Record<string, StudyLog>;
   // 学習教材（番号 → 教材の一覧）
   materials?: Record<string, Material[]>;
+  // 過去問演習（番号 → 大学の一覧）
+  pastExams?: Record<string, Exam[]>;
 };
 
 export type ImportCount = { users: number; records: number };
@@ -71,6 +74,7 @@ export function renumberDump(dump: Dump): Dump {
     records: dump.records.map((r) => ({ ...r, data: shift(r.data) })),
     study: dump.study && shift(dump.study),
     materials: dump.materials && shift(dump.materials),
+    pastExams: dump.pastExams && shift(dump.pastExams),
   };
 }
 
@@ -106,6 +110,10 @@ interface Store {
   getMaterials(): Promise<Record<number, Material[]>>;
   getMaterialsOf(number: number): Promise<Material[]>;
   saveMaterials(number: number, list: Material[]): Promise<Material[]>;
+  // 過去問演習：全員分の読み出し、1人分の読み出しと保存（一覧ごと置き換える）
+  getPastExams(): Promise<Record<number, Exam[]>>;
+  getPastExamsOf(number: number): Promise<Exam[]>;
+  savePastExams(number: number, list: Exam[]): Promise<Exam[]>;
 }
 
 const KEEP_ATTEMPTS = 20;
@@ -115,8 +123,9 @@ function makeDump(
   records: Dump["records"],
   study: Record<string, StudyLog>,
   materials: Record<string, Material[]>,
+  pastExams: Record<string, Exam[]>,
 ): Dump {
-  return { app: "eijukugo", version: 1, exportedAt: new Date().toISOString(), users, records, study, materials };
+  return { app: "eijukugo", version: 1, exportedAt: new Date().toISOString(), users, records, study, materials, pastExams };
 }
 
 function countDump(dump: Dump): ImportCount {
@@ -125,7 +134,8 @@ function countDump(dump: Dump): ImportCount {
     records:
       dump.records.reduce((s, r) => s + Object.values(r.data).filter((v) => v !== null).length, 0) +
       Object.keys(dump.study ?? {}).length +
-      Object.keys(dump.materials ?? {}).length,
+      Object.keys(dump.materials ?? {}).length +
+      Object.keys(dump.pastExams ?? {}).length,
   };
 }
 
@@ -225,6 +235,7 @@ const USERS_KEY = "eijukugo:users";
 const ADMIN_KEY = "eijukugo:admin";
 const STUDY_KEY = "eijukugo:study";
 const MATERIALS_KEY = "eijukugo:materials";
+const PAST_EXAMS_KEY = "eijukugo:pastexams";
 const MIGRATED_KEY = "eijukugo:v2:migrated";
 const RENUMBERED_KEY = "eijukugo:renumbered";
 // 英熟語は以前からのキーをそのまま使い、英単語・中学英語は別のキーに保存する
@@ -259,7 +270,7 @@ class RedisStore implements Store {
   // 1〜35番を 301〜335番へ一度だけ移す（登録者・すべての記録・学習時間）
   private async renumber() {
     if (await this.redis.get(RENUMBERED_KEY)) return;
-    const keys = [USERS_KEY, STUDY_KEY, MATERIALS_KEY];
+    const keys = [USERS_KEY, STUDY_KEY, MATERIALS_KEY, PAST_EXAMS_KEY];
     for (const set of SET_IDS) for (const kind of KINDS) keys.push(redisKey(set, kind) ?? "");
     for (const key of keys.filter(Boolean)) {
       const all = (await this.redis.hgetall<Record<string, unknown>>(key)) ?? {};
@@ -431,6 +442,7 @@ class RedisStore implements Store {
       records,
       await this.getStudy(),
       await this.getMaterials(),
+      await this.getPastExams(),
     );
   }
 
@@ -451,6 +463,8 @@ class RedisStore implements Store {
     if (Object.keys(study).length) p.hset(STUDY_KEY, study);
     const materials = Object.fromEntries(Object.entries(dump.materials ?? {}).map(([n, v]) => [n, JSON.stringify(toMaterials(v))]));
     if (Object.keys(materials).length) p.hset(MATERIALS_KEY, materials);
+    const pastExams = Object.fromEntries(Object.entries(dump.pastExams ?? {}).map(([n, v]) => [n, JSON.stringify(toExams(v))]));
+    if (Object.keys(pastExams).length) p.hset(PAST_EXAMS_KEY, pastExams);
     await p.exec();
     return countDump(dump);
   }
@@ -502,6 +516,26 @@ class RedisStore implements Store {
     await this.redis.hset(MATERIALS_KEY, { [String(number)]: JSON.stringify(next) });
     return next;
   }
+
+  async getPastExams() {
+    await this.migrate();
+    const all = await this.redis.hgetall<Record<string, unknown>>(PAST_EXAMS_KEY);
+    const out: Record<number, Exam[]> = {};
+    for (const [n, v] of Object.entries(all ?? {})) out[Number(n)] = toExams(parse<unknown>(v, null));
+    return out;
+  }
+
+  async getPastExamsOf(number: number) {
+    await this.migrate();
+    return toExams(parse<unknown>(await this.redis.hget(PAST_EXAMS_KEY, String(number)), null));
+  }
+
+  async savePastExams(number: number, list: Exam[]) {
+    await this.migrate();
+    const next = toExams(list);
+    await this.redis.hset(PAST_EXAMS_KEY, { [String(number)]: JSON.stringify(next) });
+    return next;
+  }
 }
 
 // ---------- Cloudflare D1（Cloudflare 版） ----------
@@ -525,6 +559,7 @@ const D1_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
   "CREATE TABLE IF NOT EXISTS study (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
   "CREATE TABLE IF NOT EXISTS materials (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS past_exams (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
 ];
 const UPSERT_RECORD =
   "INSERT INTO records (set_id, kind, number, data) VALUES (?, ?, ?, ?) ON CONFLICT (set_id, kind, number) DO UPDATE SET data = excluded.data";
@@ -532,6 +567,8 @@ const UPSERT_USER = "INSERT INTO users (number, data) VALUES (?, ?) ON CONFLICT 
 const UPSERT_STUDY = "INSERT INTO study (number, data) VALUES (?, ?) ON CONFLICT (number) DO UPDATE SET data = excluded.data";
 const UPSERT_MATERIALS =
   "INSERT INTO materials (number, data) VALUES (?, ?) ON CONFLICT (number) DO UPDATE SET data = excluded.data";
+const UPSERT_PAST_EXAMS =
+  "INSERT INTO past_exams (number, data) VALUES (?, ?) ON CONFLICT (number) DO UPDATE SET data = excluded.data";
 
 class D1Store implements Store {
   readonly persistent = true;
@@ -561,6 +598,7 @@ class D1Store implements Store {
       this.db.prepare(`UPDATE records SET number = number + ${RENUMBER_SHIFT} WHERE ${range}`),
       this.db.prepare(`UPDATE study SET number = number + ${RENUMBER_SHIFT} WHERE ${range}`),
       this.db.prepare(`UPDATE materials SET number = number + ${RENUMBER_SHIFT} WHERE ${range}`),
+      this.db.prepare(`UPDATE past_exams SET number = number + ${RENUMBER_SHIFT} WHERE ${range}`),
       this.db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('renumbered', ?)").bind(new Date().toISOString()),
     ]);
   }
@@ -678,6 +716,7 @@ class D1Store implements Store {
       [...groups.values()],
       await this.getStudy(),
       await this.getMaterials(),
+      await this.getPastExams(),
     );
   }
 
@@ -695,6 +734,9 @@ class D1Store implements Store {
     }
     for (const [n, v] of Object.entries(dump.materials ?? {})) {
       statements.push(this.db.prepare(UPSERT_MATERIALS).bind(Number(n), JSON.stringify(toMaterials(v))));
+    }
+    for (const [n, v] of Object.entries(dump.pastExams ?? {})) {
+      statements.push(this.db.prepare(UPSERT_PAST_EXAMS).bind(Number(n), JSON.stringify(toExams(v))));
     }
     for (let i = 0; i < statements.length; i += 50) await this.db.batch(statements.slice(i, i + 50));
     return countDump(dump);
@@ -749,6 +791,25 @@ class D1Store implements Store {
     await this.db.prepare(UPSERT_MATERIALS).bind(number, JSON.stringify(next)).run();
     return next;
   }
+
+  async getPastExams() {
+    await this.init();
+    const { results } = await this.db.prepare("SELECT number, data FROM past_exams").all<{ number: number; data: string }>();
+    return Object.fromEntries(results.map((r) => [r.number, toExams(JSON.parse(r.data))]));
+  }
+
+  async getPastExamsOf(number: number) {
+    await this.init();
+    const row = await this.db.prepare("SELECT data FROM past_exams WHERE number = ?").bind(number).first<{ data: string }>();
+    return toExams(row ? JSON.parse(row.data) : null);
+  }
+
+  async savePastExams(number: number, list: Exam[]) {
+    await this.init();
+    const next = toExams(list);
+    await this.db.prepare(UPSERT_PAST_EXAMS).bind(number, JSON.stringify(next)).run();
+    return next;
+  }
 }
 
 // ---------- ローカル開発用（.data/db.json に保存） ----------
@@ -761,6 +822,7 @@ type Db = {
   admin?: string;
   study?: Record<string, StudyLog>;
   materials?: Record<string, Material[]>;
+  pastExams?: Record<string, Exam[]>;
   renumbered?: boolean;
   // 以前の形式（英熟語のみ）
   results?: Record<string, TestResult[]>;
@@ -791,10 +853,11 @@ class LocalStore implements Store {
     }
     // 1〜35番を 301〜335番へ一度だけ移す
     if (!this.db.renumbered) {
-      const moved = renumberDump(makeDump(this.db.users, [], this.db.study ?? {}, this.db.materials ?? {}));
+      const moved = renumberDump(makeDump(this.db.users, [], this.db.study ?? {}, this.db.materials ?? {}, this.db.pastExams ?? {}));
       this.db.users = moved.users;
       this.db.study = moved.study;
       this.db.materials = moved.materials;
+      this.db.pastExams = moved.pastExams;
       for (const d of Object.values(this.db.sets)) {
         for (const kind of Object.keys(d) as Kind[]) {
           d[kind] = Object.fromEntries(Object.entries(d[kind] ?? {}).map(([k, v]) => [renumberKey(k), v]));
@@ -892,7 +955,7 @@ class LocalStore implements Store {
     for (const [set, d] of Object.entries(this.db.sets) as [SetId, SetData][]) {
       for (const [kind, data] of Object.entries(d) as [Kind, Record<string, unknown>][]) records.push({ set, kind, data });
     }
-    return makeDump(this.db.users, records, this.db.study ?? {}, this.db.materials ?? {});
+    return makeDump(this.db.users, records, this.db.study ?? {}, this.db.materials ?? {}, this.db.pastExams ?? {});
   }
 
   async importData(dump: Dump) {
@@ -902,6 +965,7 @@ class LocalStore implements Store {
     }
     for (const [n, v] of Object.entries(dump.study ?? {})) (this.db.study ??= {})[n] = toStudyLog(v);
     for (const [n, v] of Object.entries(dump.materials ?? {})) (this.db.materials ??= {})[n] = toMaterials(v);
+    for (const [n, v] of Object.entries(dump.pastExams ?? {})) (this.db.pastExams ??= {})[n] = toExams(v);
     this.save();
     return countDump(dump);
   }
@@ -948,6 +1012,23 @@ class LocalStore implements Store {
   async saveMaterials(number: number, list: Material[]) {
     const next = toMaterials(list);
     (this.db.materials ??= {})[number] = next;
+    this.save();
+    return next;
+  }
+
+  async getPastExams() {
+    const out: Record<number, Exam[]> = {};
+    for (const [n, v] of Object.entries(this.db.pastExams ?? {})) out[Number(n)] = toExams(v);
+    return out;
+  }
+
+  async getPastExamsOf(number: number) {
+    return toExams(this.db.pastExams?.[number]);
+  }
+
+  async savePastExams(number: number, list: Exam[]) {
+    const next = toExams(list);
+    (this.db.pastExams ??= {})[number] = next;
     this.save();
     return next;
   }
