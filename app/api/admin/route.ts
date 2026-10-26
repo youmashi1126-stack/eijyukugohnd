@@ -28,10 +28,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  if (!(await verifyPassword(body?.password, await store.getAdminSecret()))) {
+  const check = await verifyPassword(body?.password, await store.getAdminSecret());
+  if (!check.ok) {
     await slowDown();
     return NextResponse.json({ error: "パスワードが違います" }, { status: 401 });
   }
+  // 以前の形式（計算に時間がかかる）で保存されていたら、今の形式で保存し直す
+  if (check.upgrade) await store.replaceAdminSecret(await hashPassword(body.password));
 
   if (action === "export") {
     return NextResponse.json(await store.exportData());

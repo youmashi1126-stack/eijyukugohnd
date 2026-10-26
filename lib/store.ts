@@ -95,8 +95,10 @@ interface Store {
   exportData(): Promise<Dump>;
   importData(dump: Dump): Promise<ImportCount>;
   // 管理者パスワード（ハッシュ）。setAdminSecret はまだ設定されていないときだけ保存して true
+  // replaceAdminSecret は保存形式を新しくするときに使う（パスワードを確かめたあとだけ）
   getAdminSecret(): Promise<string | null>;
   setAdminSecret(secret: string): Promise<boolean>;
+  replaceAdminSecret(secret: string): Promise<void>;
   // 学習時間の記録：全員分の読み出しと、1人分の更新（更新後の記録を返す）
   getStudy(): Promise<Record<number, StudyLog>>;
   updateStudy(number: number, patch: StudyPatch): Promise<StudyLog>;
@@ -461,6 +463,10 @@ class RedisStore implements Store {
     return (await this.redis.set(ADMIN_KEY, secret, { nx: true })) === "OK";
   }
 
+  async replaceAdminSecret(secret: string) {
+    await this.redis.set(ADMIN_KEY, secret);
+  }
+
   async getStudy() {
     await this.migrate();
     const all = await this.redis.hgetall<Record<string, unknown>>(STUDY_KEY);
@@ -706,6 +712,11 @@ class D1Store implements Store {
     return res.meta.changes === 1;
   }
 
+  async replaceAdminSecret(secret: string) {
+    await this.init();
+    await this.db.prepare("UPDATE settings SET value = ? WHERE key = 'admin'").bind(secret).run();
+  }
+
   async getStudy() {
     await this.init();
     const { results } = await this.db.prepare("SELECT number, data FROM study").all<{ number: number; data: string }>();
@@ -904,6 +915,11 @@ class LocalStore implements Store {
     this.db.admin = secret;
     this.save();
     return true;
+  }
+
+  async replaceAdminSecret(secret: string) {
+    this.db.admin = secret;
+    this.save();
   }
 
   async getStudy() {

@@ -17,10 +17,18 @@ function fileStamp() {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
 }
 
+// サーバーがエラーのページ（JSON 以外）を返したときも、原因の手がかりになる番号を出す
+function serverError(status: number) {
+  return status === 503
+    ? "サーバーの処理が上限を超えて止まりました（503）。少し待ってからもう一度お試しください。"
+    : `サーバーでエラーが起きました（${status}）。少し待ってからもう一度お試しください。`;
+}
+
 async function post(body: object) {
   const res = await fetch("/api/admin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error ?? "失敗しました");
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error ?? serverError(res.status));
+  if (!data) throw new Error(serverError(res.status));
   return data;
 }
 
@@ -36,11 +44,14 @@ export default function AdminPage() {
 
   async function loadStatus() {
     const res = await fetch("/api/admin", { cache: "no-store" });
-    setStatus(await res.json());
+    const data = await res.json().catch(() => null);
+    if (!res.ok || typeof data?.hasPassword !== "boolean") throw new Error(data?.error ?? serverError(res.status));
+    setError("");
+    setStatus(data);
   }
 
   useEffect(() => {
-    loadStatus().catch(() => setError("状態を読み込めませんでした"));
+    loadStatus().catch((e) => setError(`管理者ページの状態を読み込めませんでした。${e instanceof Error ? e.message : ""}`));
   }, []);
 
   async function run(task: () => Promise<string>) {
@@ -87,8 +98,9 @@ export default function AdminPage() {
       const res = await fetch("/templates/materials-template.xlsx");
       if (!res.ok) throw new Error("Excel のひな形を読み込めませんでした");
       const { buildMaterialsWorkbook } = await import("@/lib/materialsXlsx");
-      const users = data.users as { number: number }[];
-      const sheets = users.map((u) => ({ number: u.number, items: data.materials[u.number] ?? [] }));
+      // 登録している人と、教材が入っている人（取り込んだがまだ登録していない人を含む）のシートを番号順に作る
+      const numbers = new Set<number>([...(data.users as { number: number }[]).map((u) => u.number), ...Object.keys(data.materials).map(Number)]);
+      const sheets = [...numbers].sort((a, b) => a - b).map((n) => ({ number: n, items: data.materials[n] ?? [] }));
       const blob = await buildMaterialsWorkbook(await res.arrayBuffer(), sheets);
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
@@ -127,7 +139,20 @@ export default function AdminPage() {
       return `読み込みました（登録者 ${res.users}人・記録 ${res.records}件）。`;
     });
 
-  if (!status) return <p className="muted center">{error || "読み込み中…"}</p>;
+  if (!status) {
+    if (!error) return <p className="muted center">読み込み中…</p>;
+    return (
+      <div className="card center">
+        <p className="error">{error}</p>
+        <button
+          className="btn"
+          onClick={() => loadStatus().catch((e) => setError(`管理者ページの状態を読み込めませんでした。${e instanceof Error ? e.message : ""}`))}
+        >
+          もう一度読み込む
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -180,7 +205,7 @@ export default function AdminPage() {
           <div className="card">
             <h2>📒 学習教材の進捗をダウンロード（Excel）</h2>
             <p className="muted">
-              登録している全員の学習教材を、学習教材シートと同じ見た目の Excel ファイルに書き出します。1人1シート（シート名は番号）で、
+              登録している人と教材が入っている人の学習教材を、学習教材シートと同じ見た目の Excel ファイルに書き出します。1人1シート（シート名は番号）で、
               残りの量・ペース・進捗・状態は Excel を開いたときに計算されます。
             </p>
             <div className="btn-row">
