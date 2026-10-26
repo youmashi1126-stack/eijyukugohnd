@@ -57,7 +57,7 @@ export type Dump = {
 
 export type ImportCount = { users: number; records: number };
 
-export type UserPatch = { nickname?: string; corners?: string[] };
+export type UserPatch = { nickname?: string; corners?: string[]; hidden?: string[] };
 
 // 以前の番号（1〜35）は 301〜335 番に移した。移す前のバックアップを読み込むときも同じように移す
 const RENUMBER_FROM = 1;
@@ -79,7 +79,12 @@ export function renumberDump(dump: Dump): Dump {
 }
 
 function applyUserPatch(user: User, patch: UserPatch): User {
-  return { ...user, ...(patch.nickname !== undefined && { nickname: patch.nickname }), ...(patch.corners !== undefined && { corners: patch.corners }) };
+  return {
+    ...user,
+    ...(patch.nickname !== undefined && { nickname: patch.nickname }),
+    ...(patch.corners !== undefined && { corners: patch.corners }),
+    ...(patch.hidden !== undefined && { hidden: patch.hidden }),
+  };
 }
 
 interface Store {

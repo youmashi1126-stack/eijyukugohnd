@@ -8,15 +8,20 @@ import { NICKNAME_MAX } from "@/lib/types";
 
 // ログインしている本人（個人用URLで開いた端末だけがログインできる）
 // nickname が null ならまだ登録していない。corners はマイページで選んだ、表示するコーナー
-export type Me = { number: number; nickname: string | null; corners: Corner[] };
+export type Me = { number: number; nickname: string | null; corners: Corner[]; hidden: Corner[] };
 type Status = "loading" | "guest" | "error" | "ok";
 type Ctx = { me: Me | null; status: Status; setMe: (me: Me) => void };
 
 const MeContext = createContext<Ctx>({ me: null, status: "loading", setMe: () => {} });
 
-function toMe(d: { number: number; nickname: string | null; corners: string[] | null }): Me {
+function toMe(d: { number: number; nickname: string | null; corners: string[] | null; hidden?: string[] | null }): Me {
   const corners = CORNERS.filter((c) => !d.corners || d.corners.includes(c));
-  return { number: d.number, nickname: d.nickname, corners: corners.length ? corners : CORNERS };
+  return {
+    number: d.number,
+    nickname: d.nickname,
+    corners: corners.length ? corners : CORNERS,
+    hidden: CORNERS.filter((c) => d.hidden?.includes(c)),
+  };
 }
 
 export function MeProvider({ children }: { children: React.ReactNode }) {

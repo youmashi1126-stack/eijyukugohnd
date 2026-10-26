@@ -2950,3 +2950,182 @@ table.ranking {
 .year-remove {
   width: 28px;
 }
+
+/* ホーム（各コーナーの進捗の概要）とみんなの学習 */
+.home-hero,
+.friends-hero {
+  background: linear-gradient(135deg, #1e2761 0%, #4a5568 60%, #8a93a6 100%);
+}
+
+.home-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 600px) {
+  .home-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.home-card {
+  display: block;
+  margin: 0;
+  padding: 16px 18px;
+  color: var(--text);
+  border-left: 6px solid #55617d;
+  transition: transform 0.12s;
+}
+
+a.home-card:hover {
+  transform: translateY(-2px);
+}
+
+.home-card.word {
+  border-left-color: #059669;
+}
+
+.home-card.idiom {
+  border-left-color: #7c3aed;
+}
+
+.home-card.jhs {
+  border-left-color: #ea580c;
+}
+
+.home-card.study {
+  border-left-color: #0284c7;
+}
+
+.home-card.materials,
+.home-card.pastexams {
+  border-left-color: #1e2761;
+}
+
+.home-card-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.home-card-go {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.home-big {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.home-big b {
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.home-big small {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.home-card .mini-bar {
+  margin: 6px 0;
+}
+
+.home-sub {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.home-empty {
+  margin: 4px 0 0;
+}
+
+.home-private {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.home-hidden-note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.home-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  border-top: 1px dashed var(--border);
+}
+
+.home-list li {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border);
+}
+
+.home-list-main {
+  font-weight: 800;
+  word-break: break-all;
+}
+
+.home-list-sub {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.home-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.friend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.friend-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 4px;
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--text);
+  text-align: center;
+  word-break: break-all;
+}
+
+.friend-cell small {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.friend-cell.me {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+/* スマホではヘッダーのメニューを折り返す（コーナーによって最大6つになるため） */
+@media (max-width: 640px) {
+  .site-nav {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2px 12px;
+  }
+}

@@ -233,7 +233,7 @@ export default function StudyRanking({ initialTab = "daily" }: { initialTab?: "d
       </div>
       {tab === "daily" ? <DailyStudyRanking data={data} myNumber={myNumber} /> : <WeeklyStudyRanking data={data} myNumber={myNumber} />}
       <p className="center">
-        <Link href="/" className="btn btn-primary">
+        <Link href="/c/study" className="btn btn-primary">
           ⏱️ 学習時間を記録する
         </Link>
       </p>
