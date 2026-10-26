@@ -10,7 +10,23 @@ export const MOODS: { id: Mood; icon: string; label: string }[] = [
 export type StudyDay = { minutes: number; mood: Mood | null };
 
 // その週の定量ゴール（数で測れる目標）と定性ゴール（取り組み方などの目標）。どちらも30字まで
-export type WeekNote = { quant: string; qual: string };
+// quantEval / qualEval：週の終わり（日曜日）からつけられる振り返り（◎〇△×）
+export type Eval = "◎" | "〇" | "△" | "×";
+export const EVALS: Eval[] = ["◎", "〇", "△", "×"];
+export type WeekNote = { quant: string; qual: string; quantEval: Eval | null; qualEval: Eval | null };
+
+export function isEval(v: unknown): v is Eval {
+  return typeof v === "string" && (EVALS as string[]).includes(v);
+}
+
+// その週の振り返り（◎〇△×）をつけられるか：週の最後の日（日曜日）になったら
+export function canEvaluate(week: string, today: string) {
+  return today >= addDays(week, 6);
+}
+
+function hasNote(n: WeekNote) {
+  return !!(n.quant || n.qual || n.quantEval || n.qualEval);
+}
 export const NOTE_MAX = 30;
 
 // days：日付 → その日の記録、goals：週の始まり（月曜）の日付 → 目標（分）、notes：週の始まり → 定量・定性ゴール
@@ -116,8 +132,14 @@ export function toStudyLog(v: unknown): StudyLog {
   }
   for (const [week, note] of Object.entries(o.notes ?? {})) {
     if (!isDateString(week) || !note || typeof note !== "object") continue;
-    const n = { quant: cleanNote((note as WeekNote).quant), qual: cleanNote((note as WeekNote).qual) };
-    if (n.quant || n.qual) log.notes[week] = n;
+    const o = note as WeekNote;
+    const n: WeekNote = {
+      quant: cleanNote(o.quant),
+      qual: cleanNote(o.qual),
+      quantEval: isEval(o.quantEval) ? o.quantEval : null,
+      qualEval: isEval(o.qualEval) ? o.qualEval : null,
+    };
+    if (hasNote(n)) log.notes[week] = n;
   }
   return log;
 }
@@ -130,7 +152,8 @@ function clamp(n: number, max: number) {
 export type StudyPatch =
   | { type: "day"; date: string; minutes?: number; mood?: Mood | null }
   | { type: "goal"; week: string; minutes: number | null }
-  | { type: "notes"; week: string; quant: string; qual: string };
+  | { type: "notes"; week: string; quant: string; qual: string }
+  | { type: "eval"; week: string; target: "quant" | "qual"; value: Eval | null };
 
 export function applyStudyPatch(log: StudyLog, patch: StudyPatch): StudyLog {
   const next: StudyLog = { days: { ...log.days }, goals: { ...log.goals }, notes: { ...log.notes } };
@@ -142,9 +165,14 @@ export function applyStudyPatch(log: StudyLog, patch: StudyPatch): StudyLog {
     };
     if (day.minutes === 0 && day.mood === null) delete next.days[patch.date];
     else next.days[patch.date] = day;
-  } else if (patch.type === "notes") {
-    const note = { quant: cleanNote(patch.quant), qual: cleanNote(patch.qual) };
-    if (note.quant || note.qual) next.notes[patch.week] = note;
+  } else if (patch.type === "notes" || patch.type === "eval") {
+    // ゴールの文を書き直しても振り返りは残し、振り返りをつけても文は変えない
+    const prev = next.notes[patch.week] ?? { quant: "", qual: "", quantEval: null, qualEval: null };
+    const note: WeekNote =
+      patch.type === "notes"
+        ? { ...prev, quant: cleanNote(patch.quant), qual: cleanNote(patch.qual) }
+        : { ...prev, [patch.target === "quant" ? "quantEval" : "qualEval"]: patch.value };
+    if (hasNote(note)) next.notes[patch.week] = note;
     else delete next.notes[patch.week];
   } else if (patch.minutes === null) {
     delete next.goals[patch.week];

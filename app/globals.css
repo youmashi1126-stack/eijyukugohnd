@@ -2312,3 +2312,167 @@ table.ranking {
     font-size: 13px;
   }
 }
+
+/* 学習時間：週の振り返り（◎〇△×） */
+.week-eval {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.week-eval-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.eval-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.eval-label {
+  font-weight: 800;
+  min-width: 7.5em;
+}
+
+.eval-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.eval-btn {
+  width: 44px;
+  height: 40px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.eval-btn.active {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+
+.eval-empty {
+  font-size: 12px;
+}
+
+/* みんなの目標：学習時間の達成状況と振り返り */
+.live-note {
+  margin: -6px 0 8px;
+  font-size: 12px;
+  text-align: right;
+}
+
+.ranking.goals-table td.goal-progress {
+  text-align: left;
+  white-space: normal;
+  min-width: 7.5em;
+  font-size: 14px;
+}
+
+.mini-bar {
+  height: 8px;
+  margin: 3px 0 1px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  overflow: hidden;
+}
+
+.mini-bar > div {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--primary), var(--primary-2));
+}
+
+.mini-bar > div.done {
+  background: linear-gradient(90deg, #10b981, #f59e0b);
+}
+
+.goals-table .rate {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.goals-table .rate.done {
+  color: var(--ok);
+}
+
+.eval-mark {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-weight: 800;
+  text-align: center;
+  color: #fff;
+  background: var(--primary);
+}
+
+.eval-mark.e0 {
+  background: #059669;
+}
+
+.eval-mark.e1 {
+  background: #0284c7;
+}
+
+.eval-mark.e2 {
+  background: #d97706;
+}
+
+.eval-mark.e3 {
+  background: #64748b;
+}
+
+.goals-table .goal-line {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  line-height: 1.5;
+}
+
+.goals-table .goal-line + .goal-line {
+  margin-top: 2px;
+}
+
+.goals-table .goal-kind {
+  flex: none;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.goals-table .goal-line .eval-mark,
+.goals-table .goal-line > .muted {
+  flex: none;
+}
+
+.goals-table .goal-quant {
+  margin: 1px 0 2px;
+  font-size: 13px;
+}
+
+@media (max-width: 520px) {
+  .ranking.goals-table td.goal-progress {
+    min-width: 6.5em;
+    font-size: 13px;
+  }
+  .ranking.goals-table td.goal-text {
+    min-width: 5em;
+  }
+  .ranking.goals-table td.name {
+    min-width: 4em;
+  }
+}

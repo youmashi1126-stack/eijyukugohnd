@@ -16,8 +16,11 @@ import {
   weekLabel,
   weekStart,
   weekTotal,
+  canEvaluate,
   charCount,
+  EVALS,
   NOTE_MAX,
+  type Eval,
   type Mood,
   type StudyLog,
   type WeekNote,
@@ -109,10 +112,15 @@ export default function StudyRecord() {
   }
 
   function saveNotes(quant: string, qual: string) {
-    const notes = { ...log.notes };
-    if (quant.trim() || qual.trim()) notes[week] = { quant: quant.trim(), qual: qual.trim() };
-    else delete notes[week];
+    const prev = log.notes[week] ?? { quant: "", qual: "", quantEval: null, qualEval: null };
+    const notes = { ...log.notes, [week]: { ...prev, quant: quant.trim(), qual: qual.trim() } };
     save(`notes:${week}`, { type: "notes", week, quant, qual }, { ...log, notes });
+  }
+
+  function saveEval(target: "quant" | "qual", value: Eval | null) {
+    const prev = log.notes[week] ?? { quant: "", qual: "", quantEval: null, qualEval: null };
+    const notes = { ...log.notes, [week]: { ...prev, [target === "quant" ? "quantEval" : "qualEval"]: value } };
+    save(`eval:${week}`, { type: "eval", week, target, value }, { ...log, notes });
   }
 
   const thisWeek = weekStart(today);
@@ -172,6 +180,7 @@ export default function StudyRecord() {
           onSave={saveNotes}
           state={saving[`notes:${week}`]}
         />
+        <WeekEval note={log.notes[week]} open={canEvaluate(week, today)} onSave={saveEval} state={saving[`eval:${week}`]} />
 
         <div className="goal-bar" aria-label="目標までの進み具合">
           <div style={{ width: `${goal ? Math.min(100, (total / goal) * 100) : 0}%` }} className={rate !== null && rate >= 100 ? "done" : ""} />
@@ -311,7 +320,7 @@ export default function StudyRecord() {
 
       <p className="center btn-row" style={{ justifyContent: "center" }}>
         <Link href="/study/goals" className="btn">
-          👥 今週のみんなの目標
+          👥 みんなの目標
         </Link>
         <Link href="/ranking" className="btn btn-primary">
           🏆 学習時間ランキングを見る
@@ -358,6 +367,59 @@ function NotesEditor({ note, onSave, state }: { note?: WeekNote; onSave: (quant:
           {state === "saving" ? "保存中…" : state === "saved" ? "✓ 保存しました" : state === "error" ? "⚠️ 保存できませんでした" : ""}
         </span>
       </div>
+    </div>
+  );
+}
+
+// 週の終わり（日曜日）からつける、定量・定性ゴールの振り返り（◎〇△×）。もう一度押すと外す
+function WeekEval({
+  note,
+  open,
+  onSave,
+  state,
+}: {
+  note?: WeekNote;
+  open: boolean;
+  onSave: (target: "quant" | "qual", value: Eval | null) => void;
+  state?: SaveState;
+}) {
+  const rows = [
+    { target: "quant" as const, label: "📏 定量ゴール", text: note?.quant, value: note?.quantEval ?? null },
+    { target: "qual" as const, label: "💭 定性ゴール", text: note?.qual, value: note?.qualEval ?? null },
+  ];
+  return (
+    <div className="week-eval">
+      <div className="week-eval-head">
+        <span className="goal-label">🏁 週の振り返り</span>
+        <span className={`save-state ${state ?? ""}`}>
+          {state === "saving" ? "保存中…" : state === "saved" ? "✓ 保存しました" : state === "error" ? "⚠️ 保存できませんでした" : ""}
+        </span>
+      </div>
+      {!open ? (
+        <p className="muted" style={{ margin: 0 }}>
+          週の最後の日（日曜日）になったら、ゴールごとに ◎〇△× で振り返れます。
+        </p>
+      ) : (
+        rows.map((r) => (
+          <div key={r.target} className="eval-row">
+            <span className="eval-label">{r.label}</span>
+            <div className="eval-buttons" role="radiogroup" aria-label={`${r.label}の振り返り`}>
+              {EVALS.map((e) => (
+                <button
+                  key={e}
+                  role="radio"
+                  aria-checked={r.value === e}
+                  className={`eval-btn ${r.value === e ? "active" : ""}`}
+                  onClick={() => onSave(r.target, r.value === e ? null : e)}
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+            {!r.text && <span className="muted eval-empty">（ゴール未記入）</span>}
+          </div>
+        ))
+      )}
     </div>
   );
 }
