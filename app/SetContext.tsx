@@ -126,6 +126,7 @@ export function SiteNav() {
         <>
           <Link href="/jhist/today">📅 今日の学習</Link>
           <Link href="/jhist/practice">📚 節別の練習</Link>
+          <Link href="/jhist/chrono">⏳ 年代</Link>
         </>
       )}
       <Link href="/ranking">🏆 ランキング</Link>

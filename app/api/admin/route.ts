@@ -5,6 +5,8 @@ import { buildSummary, loadHomeData } from "@/lib/homeSummary";
 import { getStore, renumberDump } from "@/lib/store";
 import { addDays, goalFor, weekStart, weekTotal } from "@/lib/study";
 import { jstDate } from "@/lib/types";
+import { eraStats } from "@/lib/jhist/plan";
+import { currentStreak, settingsOf, testAverage, toProfile } from "@/lib/jhist/profile";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +20,7 @@ export async function GET() {
 //         materials（学習教材の進捗）／pastexams（過去問演習の記録）。どちらも管理者ページで Excel に書き出す
 //         accounts（各アカウントの状況。見せない設定のコーナーも含めて返す）
 //         account（1人分の学習時間・学習教材・過去問の記録。行を押したときの詳しい様子）
+//         jhist／jhistQuestions／jhistReports（日本史の教員向け：時代別の定着率とノルマ、問題ごとの正答率、問題の報告）
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const store = getStore();
@@ -72,6 +75,48 @@ export async function POST(req: Request) {
         };
       }),
     });
+  }
+
+  // 日本史（教員向け）：時代 × 生徒の定着率とノルマの達成状況
+  if (action === "jhist") {
+    const [users, profiles] = await Promise.all([store.getUsers(), store.getJhistProfiles()]);
+    const today = jstDate();
+    return NextResponse.json({
+      today,
+      students: users
+        .map((u) => {
+          const p = toProfile(profiles[u.number]);
+          const settings = settingsOf(p, today);
+          const eras = eraStats(p.summary, settings.goal);
+          const d = p.daily?.date === today ? p.daily : null;
+          return {
+            number: u.number,
+            nickname: u.nickname,
+            goal: settings.goal,
+            set: settings.set,
+            eras: eras.map((e) => [e.fixed, e.target]),
+            fixed: eras.reduce((a, e) => a + e.fixed, 0),
+            target: eras.reduce((a, e) => a + e.target, 0),
+            daily: d && { newTarget: d.newTarget, newDone: d.newDone, reviewTarget: d.reviewTarget, reviewDone: d.reviewDone, achieved: d.achieved },
+            streak: currentStreak(p, today),
+            tests: { count: p.tests.count, average: testAverage(p.tests) },
+            active: !!p.summary,
+          };
+        })
+        .sort((a, b) => a.number - b.number),
+    });
+  }
+
+  // 日本史（教員向け）：問題ごとの回答数・正解数・選ばれた誤答の数
+  if (action === "jhistQuestions") {
+    return NextResponse.json({ stats: await store.getJhistQuestionStats() });
+  }
+
+  // 日本史（教員向け）：「問題がおかしい」報告（新しい順）
+  if (action === "jhistReports") {
+    const [reports, users] = await Promise.all([store.getJhistReports(), store.getUsers()]);
+    const names = new Map(users.map((u) => [u.number, u.nickname]));
+    return NextResponse.json({ reports: reports.map((r) => ({ ...r, nickname: names.get(r.number) ?? "" })) });
   }
 
   if (action === "account") {

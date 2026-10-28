@@ -3,16 +3,15 @@
 import Link from "next/link";
 import { JHIST_QUESTION_COUNT, JHIST_SECTION_COUNT } from "@/data/jhist/meta";
 import { JHIST_ERAS } from "@/data/jhist/meta";
-import { TEST_COUNT } from "@/lib/jhist/constants";
+import { CHRONO_COUNT, TEST_COUNT } from "@/lib/jhist/constants";
+import { useJhistData } from "@/lib/jhist/client";
+import { PairList } from "./PairList";
+import { useConfusions } from "./useConfusions";
 import { markOf } from "@/lib/jhist/profile";
 import { useJhistMe } from "./useJhistMe";
 
 // これから追加するメニュー
-const COMING = [
-  { icon: "⏳", title: "年代チャレンジ", sub: "並べ替えと時期判定を毎日5問" },
-  { icon: "⚠️", title: "取り違えやすい語", sub: "混同した組を特訓" },
-  { icon: "🎯", title: "入試形式トレーニング", sub: "入力記述・3文正誤・複数選択・組合せ" },
-];
+const COMING = [{ icon: "🎯", title: "入試形式トレーニング", sub: "入力記述・3文正誤・複数選択・組合せ" }];
 
 function shortDate(date: string) {
   const [y, m, d] = date.split("-").map(Number);
@@ -23,6 +22,8 @@ function shortDate(date: string) {
 // 節別の練習、実力テスト、年代チャレンジ、取り違えやすい語、入試形式トレーニング
 export default function JhistCorner() {
   const { me, error } = useJhistMe();
+  const { data } = useJhistData();
+  const pairs = useConfusions();
   if (error) return <p className="error">データを読み込めませんでした。再読み込みしてください。</p>;
   const marks = Object.values(me?.practice ?? {}).map(markOf);
   const cleared = marks.filter(Boolean).length;
@@ -143,6 +144,27 @@ export default function JhistCorner() {
             ランダム{TEST_COUNT}問・12分30秒{me && me.tests.count > 0 ? `（${me.tests.count}回・最高 ${me.tests.best}点）` : ""}
           </div>
         </Link>
+        {/* 7. 年代チャレンジ */}
+        <Link href="/jhist/chrono" className="menu-card menu-ranking">
+          <div className="menu-icon">⏳</div>
+          <div className="menu-title">年代チャレンジ</div>
+          <div className="menu-sub">
+            並べ替え・最も近い年・前後の判定を{CHRONO_COUNT}問{me && me.chrono.done > 0 ? `（今日 ${me.chrono.done}問・正解 ${me.chrono.ok}）` : ""}
+          </div>
+        </Link>
+      </div>
+
+      {/* 8. 取り違えやすい語（上位10組） */}
+      <div className="card">
+        <h2 style={{ marginTop: 0 }}>⚠️ 取り違えやすい語</h2>
+        <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+          4択で選んだ誤答が、ほかの問題の正解だった組（上位10組）。押すと、その2語の問題を続けて出します。
+        </p>
+        {data && pairs ? <PairList data={data} pairs={pairs} /> : <p className="muted center">読み込み中…</p>}
+      </div>
+
+      {/* 9. 入試形式トレーニング */}
+      <div className="menu">
         {COMING.map((m) => (
           <div key={m.title} className="menu-card menu-review empty jh-coming">
             <div className="menu-icon">{m.icon}</div>

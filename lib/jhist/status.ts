@@ -22,6 +22,8 @@ export function statusOf(profile: JhistProfile, states: TermStates, today: strin
     projected: projectDate(profile.fixedHistory, fixed, target, today),
     tests: { ...profile.tests, average: testAverage(profile.tests) },
     testHistory: profile.testHistory.slice(-10),
+    // 年代チャレンジ：今日解いた数
+    chrono: profile.chrono?.date === today ? { done: profile.chrono.done, ok: profile.chrono.ok } : { done: 0, ok: 0 },
     settings,
     daily,
     remaining: remainingOf(daily),

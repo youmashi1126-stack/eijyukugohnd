@@ -1,7 +1,7 @@
 // 日本史：送られてきた回答をサーバーで採点し、記憶の段階・ノルマ・記録をまとめて保存する
 import { getStore, type JhistAnswerStat } from "../store";
 import { jstDate } from "../types";
-import { KEEP_ATTEMPTS, PRACTICE_COUNT, TEST_GRACE_SEC, TEST_HISTORY, TEST_SEC } from "./constants";
+import { CONFUSION_QUESTIONS_PER_TERM, KEEP_ATTEMPTS, PRACTICE_COUNT, REPORT_MAX, TEST_GRACE_SEC, TEST_HISTORY, TEST_SEC } from "./constants";
 import { jhistIndex, type JQuestion } from "./data";
 import { dailyFor, eraStats, fromTermStates, summarize, toTermStates, withFixedHistory, type TermStates } from "./plan";
 import { markOf, settingsOf, toProfile, type Daily, type Goal, type JhistProfile } from "./profile";
@@ -252,4 +252,64 @@ export async function recordTest(number: number, testId: string, answers: Submit
     best: tests.best,
     ranked,
   };
+}
+
+// 取り違えやすい語の特訓：2つの用語の問題を続けて出す。実力テストと同じく、正解しても上げず、不正解なら下げる
+export async function recordDrill(number: number, attemptId: string, answers: SubmittedAnswer[]): Promise<{ ok: number; n: number } | { error: string }> {
+  const idx = jhistIndex();
+  const terms = new Set(answers.map((a) => idx.byId.get(a.qid)?.term));
+  if (
+    !answers.length ||
+    terms.has(undefined) ||
+    terms.size > 2 ||
+    answers.length > 2 * CONFUSION_QUESTIONS_PER_TERM ||
+    answers.some((a) => (a.format ?? "choice") !== "choice")
+  ) {
+    return { error: "解答データが正しくありません" };
+  }
+  const store = getStore();
+  const [rawProfile, rawTerms] = await Promise.all([store.getJhistProfile(number), store.getJhistTerms(number)]);
+  const profile = toProfile(rawProfile);
+  if (attemptId && profile.attempts.includes(attemptId)) return { ok: 0, n: 0 };
+  const today = jstDate();
+  const states = toTermStates(rawTerms);
+  const applied = applyAll(states, answers, today, "check", "confusion");
+  const next: JhistProfile = {
+    ...profile,
+    attempts: attemptId ? [...profile.attempts, attemptId].slice(-KEEP_ATTEMPTS) : profile.attempts,
+    ...summaryFields(profile, states, today),
+  };
+  await store.saveJhist(number, { profile: next, terms: fromTermStates(states), log: applied.log, stats: applied.stats, confusions: applied.confusions });
+  return { ok: applied.results.filter((r) => r.mark === "o").length, n: answers.length };
+}
+
+// 年代チャレンジの結果（記憶の段階には使わない。並べ替えなどは、どの用語を間違えたか決められないため）
+export type ChronoAnswer = { kind: "sort" | "nearest" | "after"; ok: boolean; qids: string[] };
+
+export function isChronoAnswer(v: unknown): v is ChronoAnswer {
+  const a = v as ChronoAnswer;
+  return !!a && ["sort", "nearest", "after"].includes(a.kind) && typeof a.ok === "boolean" && Array.isArray(a.qids) && a.qids.length <= 6 && a.qids.every((q) => typeof q === "string");
+}
+
+export async function recordChrono(number: number, attemptId: string, items: ChronoAnswer[]) {
+  const idx = jhistIndex();
+  if (!items.length || items.length > 10 || !items.every((i) => i.qids.every((q) => idx.byId.has(q)))) return { error: "解答データが正しくありません" };
+  const store = getStore();
+  const profile = toProfile(await store.getJhistProfile(number));
+  if (attemptId && profile.attempts.includes(attemptId)) return { chrono: profile.chrono };
+  const today = jstDate();
+  const prev = profile.chrono?.date === today ? profile.chrono : { date: today, done: 0, ok: 0 };
+  const chrono = { date: today, done: prev.done + items.length, ok: prev.ok + items.filter((i) => i.ok).length };
+  const next: JhistProfile = { ...profile, chrono, attempts: attemptId ? [...profile.attempts, attemptId].slice(-KEEP_ATTEMPTS) : profile.attempts };
+  // [形式, ○×, 出てきた出来事の出典問題ID]
+  await store.saveJhist(number, { profile: next, log: { source: "chrono", entries: items.map((i) => [i.kind, i.ok ? "o" : "x", i.qids.join(",")]) } });
+  return { chrono };
+}
+
+// 「問題がおかしい」報告（自由記述は任意・100字まで）
+export async function reportQuestion(number: number, qid: string, text: string) {
+  if (!jhistIndex().byId.has(qid)) return { error: "問題が見つかりません" };
+  const clean = [...String(text ?? "").replace(/[\r\n\t]+/g, " ").trim()].slice(0, REPORT_MAX).join("");
+  await getStore().addJhistReport(number, qid, clean);
+  return { ok: true };
 }

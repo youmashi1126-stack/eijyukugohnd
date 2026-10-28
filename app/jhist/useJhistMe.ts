@@ -19,6 +19,7 @@ export type JhistMe = {
   examDays: number;
   projected: string | null;
   tests: { count: number; total: number; best: number | null; lastAt: string | null; average: number | null };
+  chrono: { done: number; ok: number };
 };
 
 export function useJhistMe(): { me: JhistMe | null; error: boolean } {

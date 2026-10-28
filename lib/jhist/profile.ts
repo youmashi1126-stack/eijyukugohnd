@@ -41,6 +41,8 @@ export type JhistProfile = {
   pendingTest: PendingTest | null;
   // 日ごとの定着語数（目標の対象用語のうち）：[日付, 数]。見込み日の計算に使う
   fixedHistory: [string, number][];
+  // 年代チャレンジ：その日に解いた問題数と正解数
+  chrono: { date: string; done: number; ok: number } | null;
 };
 
 export function emptyProfile(): JhistProfile {
@@ -99,6 +101,7 @@ export function toProfile(v: unknown): JhistProfile {
       o.pendingTest && typeof o.pendingTest.id === "string" && Array.isArray(o.pendingTest.qids)
         ? { ...o.pendingTest, era: Number.isInteger(o.pendingTest.era) ? o.pendingTest.era : null, level: o.pendingTest.level === "adv" ? "adv" : "std" }
         : null,
+    chrono: o.chrono && isDate(o.chrono.date) ? { date: o.chrono.date, done: int(o.chrono.done), ok: int(o.chrono.ok) } : null,
     fixedHistory: Array.isArray(o.fixedHistory)
       ? o.fixedHistory.filter((h) => Array.isArray(h) && isDate(h[0]) && Number.isInteger(h[1])).slice(-FIXED_HISTORY_DAYS)
       : [],
