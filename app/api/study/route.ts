@@ -10,6 +10,10 @@ import {
   MAX_DAY_MINUTES,
   MAX_WEEK_GOAL,
   NOTE_MAX,
+  PLAN_AHEAD_DAYS,
+  PLAN_MAX,
+  addDays,
+  toPlan,
   weekStart,
   type StudyLog,
   type StudyPatch,
@@ -74,7 +78,8 @@ function isNote(v: unknown): v is string {
   return typeof v === "string" && charCount(v.trim()) <= NOTE_MAX && !/[\r\n]/.test(v);
 }
 
-// type：day（その日の学習時間・振り返り）／goal（その週の目標時間）／notes（その週の定量・定性ゴール）
+// type：day（その日の学習時間・振り返り・目標時間・予定）／goal（その週の目標時間）／notes（その週の定量・定性ゴール）
+// 予定・目標（日・週）・ゴールは先の日（約2か月先まで）にも立てられる。学習時間と振り返りは今日まで
 //       eval（定量・定性ゴールの◎〇△×。週の最後の日＝日曜日から）
 // 記録するのはログインしている本人の番号だけ
 export async function POST(req: Request) {
@@ -86,13 +91,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "まだニックネームが登録されていません" }, { status: 400 });
   }
   const today = jstDate();
-  const validWeek = (w: unknown): w is string => isDateString(w) && weekStart(w) === w && w <= weekStart(today);
+  const lastDay = addDays(today, PLAN_AHEAD_DAYS);
+  const validWeek = (w: unknown): w is string => isDateString(w) && weekStart(w) === w && w <= weekStart(lastDay);
 
   let patch: StudyPatch;
   if (body?.type === "day") {
-    const { date, minutes, mood } = body;
-    if (!isDateString(date) || date > today) {
-      return NextResponse.json({ error: "日付が正しくありません（未来の日は記録できません）" }, { status: 400 });
+    const { date, minutes, mood, goal, plan } = body;
+    if (!isDateString(date) || date > lastDay) {
+      return NextResponse.json({ error: "日付が正しくありません" }, { status: 400 });
+    }
+    if (date > today && (minutes !== undefined || mood !== undefined)) {
+      return NextResponse.json({ error: "先の日は予定と目標だけ立てられます（学習時間と振り返りは当日から）" }, { status: 400 });
+    }
+    if (goal !== undefined && goal !== null && !isMinutes(goal, MAX_DAY_MINUTES)) {
+      return NextResponse.json({ error: "その日の目標時間が正しくありません" }, { status: 400 });
+    }
+    if (plan !== undefined && (!Array.isArray(plan) || plan.length > PLAN_MAX || toPlan(plan).length !== plan.length)) {
+      return NextResponse.json({ error: `予定は${PLAN_MAX}個まで、一覧から選んでください` }, { status: 400 });
     }
     if (minutes !== undefined && !isMinutes(minutes, MAX_DAY_MINUTES)) {
       return NextResponse.json({ error: `学習時間は0〜${MAX_DAY_MINUTES / 60}時間で入力してください` }, { status: 400 });
@@ -100,7 +115,7 @@ export async function POST(req: Request) {
     if (mood !== undefined && mood !== null && !isMood(mood)) {
       return NextResponse.json({ error: "振り返りの選び方が正しくありません" }, { status: 400 });
     }
-    patch = { type: "day", date, minutes, mood };
+    patch = { type: "day", date, minutes, mood, goal, plan };
   } else if (body?.type === "goal") {
     const { week, minutes } = body;
     if (!validWeek(week)) {

@@ -1,4 +1,5 @@
 // ホーム（自分）と、みんなの学習（友達）に出す「各コーナーの進捗の概要」（クライアントでも使う定義）
+import type { PlanItem } from "./study";
 import type { Corner, SetId } from "./sets";
 
 export type SetSummary = {
@@ -13,7 +14,17 @@ export type SetSummary = {
   lastAt?: string | null; // 最後にテストを受けた日時
 };
 
-export type StudySummary = { week: string; weekTotal: number; goal: number | null; today: number; days: number; quant: string };
+// todayGoal・todayPlan：今日の目標時間と、今日学習すること（予定）
+export type StudySummary = {
+  week: string;
+  weekTotal: number;
+  goal: number | null;
+  today: number;
+  days: number;
+  quant: string;
+  todayGoal: number | null;
+  todayPlan: PlanItem[];
+};
 
 export type MaterialItem = { subject: string | null; title: string; status: string | null; progress: number | null; state: string };
 export type MaterialsSummary = {

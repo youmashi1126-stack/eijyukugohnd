@@ -78,6 +78,8 @@ export function buildSummary(user: User, data: HomeData, { isMe, showAll }: { is
       today: log.days[today]?.minutes ?? 0,
       days: studiedDays(log, week),
       quant: log.notes[week]?.quant ?? "",
+      todayGoal: log.days[today]?.goal ?? null,
+      todayPlan: log.days[today]?.plan ?? [],
     };
   }
 
