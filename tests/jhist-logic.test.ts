@@ -19,7 +19,10 @@ describe("節別の練習の ○◎", () => {
     expect(practiceSummary(p)).toEqual({ cleared: 2, perfect: 1, tried: 3 });
   });
   it("壊れた値は捨てる", () => {
-    expect(toProfile({ practice: { a: "x", b: [1, 0] }, attempts: [1, "a"] })).toEqual({ practice: {}, attempts: ["a"] });
+    const p = toProfile({ practice: { a: "x", b: [1, 0] }, attempts: [1, "a"], settings: { examDate: "x", goal: "std" } });
+    expect(p.practice).toEqual({});
+    expect(p.attempts).toEqual(["a"]);
+    expect(p.settings).toBeNull();
   });
 });
 
@@ -52,5 +55,17 @@ describe("表示するコーナー", () => {
     const all = ["word", "idiom", "jhs", "jhist", "study", "materials", "pastexams"];
     expect(visibleCorners({ corners: ["word", "study"], cornersKnown: all })).toEqual(["word", "study"]);
     expect(visibleCorners({ corners: ["jhist"], cornersKnown: all })).toEqual(["jhist"]);
+  });
+});
+
+import { lengthHint } from "@/lib/jhist/hint";
+describe("記述の字数表示", () => {
+  it("すべて漢字なら字数つき", () => expect(lengthHint("墾田永年私財法", [])).toBe("（漢字7字）"));
+  it("々も漢字として数える", () => expect(lengthHint("佐々木", [])).toBe("（漢字3字）"));
+  it("別解の字数が違えば「漢字」だけ", () => expect(lengthHint("韓鍛冶部", ["韓鍛冶"])).toBe("（漢字）"));
+  it("別解も同じ字数の漢字なら字数つき", () => expect(lengthHint("大化改新", ["乙巳の変"].filter(() => false))).toBe("（漢字4字）"));
+  it("カタカナ・ひらがなを含む正解には出さない", () => {
+    expect(lengthHint("ナウマンゾウ", [])).toBe("");
+    expect(lengthHint("加賀の一向一揆", [])).toBe("");
   });
 });

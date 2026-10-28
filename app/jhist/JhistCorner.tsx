@@ -7,7 +7,6 @@ import { useJhistMe } from "./useJhistMe";
 
 // これから追加するメニュー（日本史コーナーの構成。今日の学習が中心）
 const COMING = [
-  { icon: "📅", title: "今日の学習", sub: "新出と復習を自動で並べて出題" },
   { icon: "🚀", title: "実力テスト", sub: "ランダム50問・ランキング用" },
   { icon: "⏳", title: "年代チャレンジ", sub: "並べ替えと時期判定を毎日5問" },
   { icon: "⚠️", title: "取り違えやすい語", sub: "混同した組を特訓" },
@@ -29,7 +28,18 @@ export default function JhistCorner() {
         <p className="muted" style={{ margin: 0 }}>
           日本史一問一答{JHIST_QUESTION_COUNT.toLocaleString()}問の4択・正誤・記述・年代テスト
         </p>
-        <div className="stats" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+        <div className="stats">
+          <div className="stat">
+            <div className="stat-label">定着</div>
+            <div className="stat-value">
+              {me ? me.fixed : "-"}
+              <small>/{me ? me.target.toLocaleString() : "-"}</small>
+            </div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">連続</div>
+            <div className="stat-value">{me ? `${me.streak}日` : "-"}</div>
+          </div>
           <div className="stat">
             <div className="stat-label">練習クリア</div>
             <div className="stat-value">
@@ -41,12 +51,27 @@ export default function JhistCorner() {
             <div className="stat-label">◎（満点）</div>
             <div className="stat-value">{me ? perfect : "-"}</div>
           </div>
-          <div className="stat">
-            <div className="stat-label">挑戦したセクション</div>
-            <div className="stat-value">{me ? marks.length : "-"}</div>
-          </div>
         </div>
       </div>
+
+      <Link href="/jhist/today" className="card jh-today-card">
+        <span className="jh-today-icon">📅</span>
+        <span className="jh-today-body">
+          <b>今日の学習</b>
+          <small>
+            {!me
+              ? "読み込み中…"
+              : !me.settings.set
+                ? "はじめに入試日と目標を決めよう"
+                : me.remaining > 0
+                  ? `ノルマ残り ${me.remaining}問（新出 ${Math.max(0, me.daily.newTarget - me.daily.newDone)}・復習 ${Math.max(0, me.daily.reviewTarget - me.daily.reviewDone)}）`
+                  : me.more
+                    ? "🎉 ノルマ達成！ 期限の来た復習が残っています"
+                    : "🎉 今日の分はすべて終わりました"}
+          </small>
+        </span>
+        <span className="jh-today-go">{me && me.remaining > 0 ? me.remaining : "▶"}</span>
+      </Link>
 
       <div className="menu">
         <Link href="/jhist/practice" className="menu-card menu-practice">

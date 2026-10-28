@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { playSfx } from "@/lib/sound";
-import { BLANK, fill, shuffle, useJhistData, type CQuestion, type JData } from "@/lib/jhist/client";
+import { BLANK, shuffle, useJhistData, type CQuestion } from "@/lib/jhist/client";
 import { PRACTICE_COUNT, PRACTICE_SEC } from "@/lib/jhist/constants";
 import { useSet } from "../../SetContext";
+import { Feedback, Filled } from "../parts";
 
 const LABELS = ["ア", "イ", "ウ", "エ"];
 const TIMED_OUT = -1;
@@ -27,24 +28,6 @@ export default function JhistQuizPage() {
 // 4択：正解と誤答1〜3を並べ替える（誤答はデータのものだけを使う）
 function makeItem(q: CQuestion): Item {
   return { q, choices: shuffle([q.answer, ...q.wrongs]) };
-}
-
-// 空欄に語を入れた文。入れた語は強調する
-function Filled({ q, word, className }: { q: CQuestion; word: string; className?: string }) {
-  const [before, after] = q.text.split(BLANK);
-  return (
-    <span className={className}>
-      {before}
-      <b className="jh-fill">{word}</b>
-      {after}
-    </span>
-  );
-}
-
-// 間違えて選んだ語が、ほかの問題の正解になっているなら、その問題（取り違え注意）
-function confusedWith(data: JData, q: CQuestion, chosen: string | null) {
-  if (!chosen || chosen === q.answer) return null;
-  return data.questions.find((x) => x.answer === chosen && x.term !== q.term) ?? null;
 }
 
 function Runner() {
@@ -229,7 +212,6 @@ function Runner() {
   const chosen = picked === null || picked === TIMED_OUT ? null : item.choices[picked];
   const ok = picked !== null && chosen === item.q.answer;
   const left = Math.max(0, PRACTICE_SEC - (now - shownAt.current) / 1000);
-  const confused = picked !== null && !ok ? confusedWith(data, item.q, chosen) : null;
   const [before, after] = item.q.text.split(BLANK);
 
   return (
@@ -277,27 +259,7 @@ function Runner() {
           })}
         </div>
 
-        {picked !== null && (
-          <div className="jh-feedback">
-            <div>
-              <span className="jh-feedback-label">正文</span>
-              <Filled q={item.q} word={item.q.answer} />
-            </div>
-            {item.q.alts.length > 0 && (
-              <div>
-                <span className="jh-feedback-label">別解</span>
-                {item.q.alts.join("、")}
-              </div>
-            )}
-            {confused && (
-              <div className="jh-confused">
-                <span className="jh-feedback-label">⚠️ 取り違え注意</span>
-                「{chosen}」はこちらの答えです：
-                <Filled q={confused} word={confused.answer} />
-              </div>
-            )}
-          </div>
-        )}
+        {picked !== null && <Feedback data={data} q={item.q} chosen={chosen} />}
 
         <div className="test-bottom">
           <button

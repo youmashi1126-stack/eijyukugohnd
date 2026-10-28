@@ -5,6 +5,7 @@ import { useState } from "react";
 import { CORNERS, SETS, type Corner } from "@/lib/sets";
 import { NICKNAME_MAX } from "@/lib/types";
 import { toMe, useMe } from "../MeContext";
+import { JhistSettingsCard } from "../jhist/SettingsForm";
 
 const CORNER_LABEL: Record<Corner, string> = {
   word: `${SETS.word.icon} ${SETS.word.label}`,
@@ -133,6 +134,8 @@ export default function MyPage() {
         </div>
         {hiddenState && <p className={hiddenState.kind === "ok" ? "save-ok" : "error"}>{hiddenState.text}</p>}
       </div>
+
+      {me.corners.includes("jhist") && <JhistSettingsCard />}
     </>
   );
 }

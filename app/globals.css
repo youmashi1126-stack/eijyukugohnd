@@ -3763,3 +3763,164 @@ a.home-card:hover {
   display: grid;
   gap: 10px;
 }
+
+/* 日本史：今日の学習 */
+.jh-today-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: #fff;
+  background: linear-gradient(135deg, #7f1d1d, #be123c);
+}
+
+.jh-today-icon {
+  font-size: 34px;
+}
+
+.jh-today-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.jh-today-body b {
+  font-size: 20px;
+}
+
+.jh-today-body small {
+  opacity: 0.92;
+}
+
+.jh-today-go {
+  min-width: 2.4em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fff;
+  color: #9f1239;
+  font-weight: 900;
+  text-align: center;
+}
+
+.jh-quota {
+  padding: 12px 16px;
+}
+
+.jh-quota-main {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-weight: 800;
+}
+
+.jh-quota-sub {
+  font-size: 12px;
+}
+
+.jh-hint {
+  margin-left: 4px;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.jh-tf-ask {
+  margin: 10px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.jh-tf-buttons,
+.jh-self {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.jh-self {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.jh-tf-buttons .btn,
+.jh-self .btn {
+  justify-content: center;
+  padding: 14px 6px;
+}
+
+.jh-tf-buttons .btn.is-answer {
+  border-color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.jh-tf-buttons .btn.is-wrong {
+  border-color: #9a3412;
+  background: #fff1e6;
+}
+
+.jh-tf-buttons .btn.dim {
+  opacity: 0.5;
+}
+
+.jh-self-o {
+  border-color: var(--ok) !important;
+}
+
+.jh-self-t {
+  border-color: #d97706 !important;
+}
+
+.jh-self-x {
+  border-color: #64748b !important;
+}
+
+.jh-wrong-word {
+  color: #9a3412;
+  text-decoration: line-through;
+}
+
+.jh-wrong-text .jh-fill {
+  color: #9a3412;
+  border-bottom-color: #9a3412;
+}
+
+.jh-feedback-label.wrong {
+  background: #9a3412;
+}
+
+.jh-diff-note {
+  font-size: 12px;
+}
+
+.jh-verdict {
+  margin: 10px 0 0;
+  font-weight: 800;
+}
+
+.jh-verdict.o {
+  color: var(--ok);
+}
+
+.jh-verdict.t {
+  color: #d97706;
+}
+
+.jh-verdict.x {
+  color: #9a3412;
+}
+
+.jh-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jh-settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-weight: 800;
+}
+
+.jh-settings-row .input {
+  max-width: 220px;
+}

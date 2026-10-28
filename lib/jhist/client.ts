@@ -27,6 +27,8 @@ export type JData = {
   terms: { id: string; term: string; imp: string }[];
   questions: CQuestion[];
   byId: Map<string, CQuestion>;
+  // 用語の番号 → その用語の問題ID（問題ID順）
+  termQuestions: string[][];
   chrono: CChrono[];
 };
 
@@ -54,7 +56,10 @@ function build(raw: Raw): JData {
     section,
     reading,
   }));
+  const termQuestions: string[][] = raw.terms.map(() => []);
+  for (const q of questions) termQuestions[q.term].push(q.id);
   return {
+    termQuestions,
     eras: raw.eras,
     sections: raw.sections,
     terms: raw.terms.map(([id, term, imp]) => ({ id, term, imp })),
