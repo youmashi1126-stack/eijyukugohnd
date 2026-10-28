@@ -36,3 +36,17 @@ export const UNLOCK_RATE = 0.8;
 export const SESSION_SIZE = 20;
 // 入試日の初期値（2月10日）
 export const DEFAULT_EXAM_MONTH_DAY = "02-10";
+
+// ---------- 実力テスト ----------
+// ランダム50問・4択・制限時間12分30秒。100点満点に換算する。ランキング（平均点）は全範囲のテストだけで集計する
+export const TEST_COUNT = 50;
+export const TEST_SEC = 750;
+// 送信までの時間の余裕（通信の遅れなど）
+export const TEST_GRACE_SEC = 120;
+// 最近のテストの記録を残す数
+export const TEST_HISTORY = 30;
+
+// 「このペースで全範囲が定着する見込み日」：直近この日数の定着語数の増え方から見込む（記録が短ければ最初の日から）
+export const PACE_DAYS = 14;
+// 定着語数の記録を残す日数
+export const FIXED_HISTORY_DAYS = 90;

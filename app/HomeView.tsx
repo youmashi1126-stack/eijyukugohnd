@@ -121,12 +121,16 @@ export default function HomeView({ s, corners, link, detail }: { s: HomeSummary;
       {corners.includes("jhist") && s.jhist && (
         <Card corner="jhist" link={link}>
           <div className="home-big">
-            節別の練習 <b>{s.jhist.cleared}</b>
-            <small>/{s.jhist.sections}セクション クリア</small>
+            定着 <b>{s.jhist.target ? Math.round((s.jhist.fixed / s.jhist.target) * 1000) / 10 : 0}%</b>
+            <small>
+              （{s.jhist.fixed.toLocaleString()}/{s.jhist.target.toLocaleString()}）
+            </small>
           </div>
-          <Bar value={s.jhist.cleared / s.jhist.sections} />
+          <Bar value={s.jhist.target ? s.jhist.fixed / s.jhist.target : null} />
           <div className="home-sub">
-            ◎ {s.jhist.perfect}・挑戦 {s.jhist.tried}セクション
+            今日のノルマ：{s.jhist.remaining === null ? "-" : s.jhist.remaining > 0 ? `残り${s.jhist.remaining}問` : "達成 🎉"}・連続{s.jhist.streak}日
+            <br />
+            テスト {s.jhist.count}回・平均 {s.jhist.average ?? "-"}点・最高 {s.jhist.best ?? "-"}点
           </div>
           {hiddenForOthers.includes("jhist") && <p className="home-private">🙈 ほかの人には見せていません</p>}
         </Card>

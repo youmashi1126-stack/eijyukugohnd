@@ -41,8 +41,21 @@ export type PastSubjectItem = { name: string; done: number; planned: number; ave
 export type PastExamItem = { univ: string; date: string | null; total: number | null; subjects: PastSubjectItem[] };
 export type PastSummary = { univs: number; solved: number; remain: number; exams: PastExamItem[] };
 
-// 日本史：節別の練習の進み具合（○以上・◎のセクション数）
-export type JhistSummary = { sections: number; cleared: number; perfect: number; tried: number };
+// 日本史：定着（段階4以上）の数と目標の対象用語数、今日のノルマの残り（分からなければ null）、連続日数、
+// 実力テスト（全範囲）の回数・平均・最高、節別の練習の進み具合（○以上・◎のセクション数）
+export type JhistSummary = {
+  fixed: number;
+  target: number;
+  remaining: number | null;
+  streak: number;
+  count: number;
+  average: number | null;
+  best: number | null;
+  sections: number;
+  cleared: number;
+  perfect: number;
+  tried: number;
+};
 
 export type HomeSummary = {
   number: number;

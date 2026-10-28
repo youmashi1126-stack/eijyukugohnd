@@ -1,5 +1,5 @@
 // 日本史：1人分の設定・記録のまとめ（jhist_profile に保存する形。クライアントでも使う）
-import { DEFAULT_EXAM_MONTH_DAY, KEEP_ATTEMPTS, PRACTICE_PASS_RATE } from "./constants";
+import { DEFAULT_EXAM_MONTH_DAY, FIXED_HISTORY_DAYS, KEEP_ATTEMPTS, PRACTICE_PASS_RATE, TEST_HISTORY } from "./constants";
 
 // 目標：std＝日東駒専・GMARCH（重要度 S＋A）、adv＝早慶上智（S＋A＋B）
 export type Goal = "std" | "adv";
@@ -19,6 +19,13 @@ export type Daily = { date: string; newTarget: number; reviewTarget: number; new
 // 集計（ホーム・ランキング・教員向け）：時代 × 重要度ごとの定着した用語数・学習中の用語数
 export type JhistSummary = { fixed: number[][]; learning: number[][] };
 
+// 実力テスト：level＝難易度（std：S＋A／adv：S＋A＋B）、era＝時代を選んだときの番号（全範囲は null）
+export type TestRecord = { at: string; score: number; ok: number; n: number; era: number | null; level: Goal };
+// 受けている途中の実力テスト（出題した問題をサーバーで覚えておき、送られてきた答えと照らし合わせる）
+export type PendingTest = { id: string; qids: string[]; startedAt: string; era: number | null; level: Goal };
+// 全範囲のテストの集計（ランキングの平均点用）
+export type TestStats = { count: number; total: number; best: number | null; lastAt: string | null };
+
 // practice：セクションの key → [最高の正解数, 出題数]
 // attempts：最近の送信ID（通信の再試行で二重に記録しないため）
 // streak：ノルマを達成した連続日数（last はその最後の日）
@@ -29,10 +36,15 @@ export type JhistProfile = {
   daily: Daily | null;
   streak: { count: number; last: string };
   summary: JhistSummary | null;
+  tests: TestStats;
+  testHistory: TestRecord[];
+  pendingTest: PendingTest | null;
+  // 日ごとの定着語数（目標の対象用語のうち）：[日付, 数]。見込み日の計算に使う
+  fixedHistory: [string, number][];
 };
 
 export function emptyProfile(): JhistProfile {
-  return { practice: {}, attempts: [], settings: null, daily: null, streak: { count: 0, last: "" }, summary: null };
+  return toProfile({});
 }
 
 const isDate = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
@@ -76,7 +88,26 @@ export function toProfile(v: unknown): JhistProfile {
         : null,
     streak: { count: int(o.streak?.count), last: isDate(o.streak?.last) ? o.streak!.last : "" },
     summary: o.summary && Array.isArray(o.summary.fixed) && Array.isArray(o.summary.learning) ? o.summary : null,
+    tests: {
+      count: int(o.tests?.count),
+      total: int(o.tests?.total),
+      best: Number.isInteger(o.tests?.best) ? o.tests!.best : null,
+      lastAt: typeof o.tests?.lastAt === "string" ? o.tests.lastAt : null,
+    },
+    testHistory: Array.isArray(o.testHistory) ? o.testHistory.filter((t) => t && typeof t.at === "string" && Number.isInteger(t.score)).slice(-TEST_HISTORY) : [],
+    pendingTest:
+      o.pendingTest && typeof o.pendingTest.id === "string" && Array.isArray(o.pendingTest.qids)
+        ? { ...o.pendingTest, era: Number.isInteger(o.pendingTest.era) ? o.pendingTest.era : null, level: o.pendingTest.level === "adv" ? "adv" : "std" }
+        : null,
+    fixedHistory: Array.isArray(o.fixedHistory)
+      ? o.fixedHistory.filter((h) => Array.isArray(h) && isDate(h[0]) && Number.isInteger(h[1])).slice(-FIXED_HISTORY_DAYS)
+      : [],
   };
+}
+
+// 平均点（全範囲のテスト。小数1桁）
+export function testAverage(t: TestStats) {
+  return t.count ? Math.round((t.total / t.count) * 10) / 10 : null;
 }
 
 export type PracticeMark = "◎" | "○" | "";

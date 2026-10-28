@@ -15,6 +15,10 @@ export type JhistMe = {
   fixed: number;
   learning: number;
   more: boolean;
+  eras: { target: number; fixed: number; learning: number }[];
+  examDays: number;
+  projected: string | null;
+  tests: { count: number; total: number; best: number | null; lastAt: string | null; average: number | null };
 };
 
 export function useJhistMe(): { me: JhistMe | null; error: boolean } {
