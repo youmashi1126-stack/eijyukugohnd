@@ -16,6 +16,7 @@ const SHORT: Record<Corner, string> = {
   study: EXTRA.study.icon,
   materials: EXTRA.materials.icon,
   pastexams: EXTRA.pastexams.icon,
+  jhist: EXTRA.jhist.icon,
 };
 
 // 何日前か（今日・昨日・◯日前）

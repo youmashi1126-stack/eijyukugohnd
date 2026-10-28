@@ -13,6 +13,7 @@ import StorageWarning from "../../StorageWarning";
 import Materials from "../../materials/Materials";
 import PastExams from "../../pastexams/PastExams";
 import StudyRecord from "../../study/StudyRecord";
+import JhistCorner from "../../jhist/JhistCorner";
 
 function greeting() {
   const h = new Date().getHours();
@@ -76,7 +77,9 @@ function CornerContent() {
     <>
       <StorageWarning persistent={persistent} />
       <SetSwitch />
-      {corner === "study" ? (
+      {corner === "jhist" ? (
+        <JhistCorner />
+      ) : corner === "study" ? (
         <StudyRecord />
       ) : corner === "materials" ? (
         <Materials />

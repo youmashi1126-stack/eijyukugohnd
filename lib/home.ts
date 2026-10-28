@@ -41,6 +41,9 @@ export type PastSubjectItem = { name: string; done: number; planned: number; ave
 export type PastExamItem = { univ: string; date: string | null; total: number | null; subjects: PastSubjectItem[] };
 export type PastSummary = { univs: number; solved: number; remain: number; exams: PastExamItem[] };
 
+// 日本史：節別の練習の進み具合（○以上・◎のセクション数）
+export type JhistSummary = { sections: number; cleared: number; perfect: number; tried: number };
+
 export type HomeSummary = {
   number: number;
   nickname: string;
@@ -52,6 +55,7 @@ export type HomeSummary = {
   study: StudySummary | null;
   materials: MaterialsSummary | null;
   pastexams: PastSummary | null;
+  jhist?: JhistSummary | null;
   lastActive?: string | null; // 最後に記録した日（テスト・学習時間）
 };
 

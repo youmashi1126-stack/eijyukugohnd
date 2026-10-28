@@ -3527,3 +3527,400 @@ a.home-card:hover {
   font-size: 11px;
   text-align: right;
 }
+
+/* ---------- 日本史のコーナー（えんじ色） ---------- */
+[data-set="jhist"] {
+  --primary: #9f1239;
+  --primary-2: #c2410c;
+  --primary-soft: #fdecef;
+  --border: #f3d6dc;
+  --shadow: 0 8px 24px rgba(159, 18, 57, 0.14);
+  --text: #2d1a20;
+  --muted: #7a5c63;
+}
+
+[data-set="jhist"] body {
+  background: linear-gradient(160deg, #fff5f6 0%, #fdf2f0 45%, #fbf4ec 100%) fixed;
+}
+
+[data-set="jhist"] .hero {
+  background: linear-gradient(135deg, #7f1d1d 0%, #9f1239 55%, #c2410c 100%);
+}
+
+[data-set="jhist"] .menu-practice,
+[data-set="jhist"] .practice-hero {
+  background: linear-gradient(135deg, #9f1239, #e11d48);
+}
+
+[data-set="jhist"] .btn-primary {
+  box-shadow: 0 6px 16px rgba(159, 18, 57, 0.3);
+}
+
+.set-tab.jhist.active {
+  border-color: #9f1239;
+  background: linear-gradient(135deg, #fdecef, #ffedd5);
+  box-shadow: 0 6px 18px rgba(159, 18, 57, 0.25);
+}
+
+.home-card.jhist {
+  border-left-color: #9f1239;
+}
+
+.jh-coming {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.jh-coming:hover {
+  transform: none;
+}
+
+/* 節別の練習：セクション一覧 */
+.jh-section-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jh-section {
+  display: grid;
+  grid-template-columns: 2.4em 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.jh-section:hover {
+  filter: brightness(0.97);
+}
+
+.jh-sec-no {
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.jh-sec-name {
+  font-weight: 700;
+}
+
+.jh-sec-count,
+.jh-sec-best {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.jh-section.pass {
+  background: #fff7e6;
+}
+
+.jh-section.perfect {
+  background: #fde68a;
+}
+
+.jh-section.pass .jh-sec-best,
+.jh-section.perfect .jh-sec-best {
+  color: #9a3412;
+  font-weight: 800;
+}
+
+/* 1セクションの問題一覧（赤シート） */
+.jh-list {
+  margin: 0;
+  padding-left: 1.6em;
+}
+
+.jh-item {
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border);
+  line-height: 1.8;
+}
+
+.jh-answer {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  font: inherit;
+  font-weight: 800;
+  color: #9f1239;
+  border-bottom: 2px solid #9f1239;
+  cursor: default;
+}
+
+.jh-answer.hidden {
+  background: #fecdd3;
+  color: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.jh-alt {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.jh-imp {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  background: #55617d;
+  vertical-align: 1px;
+}
+
+.jh-imp.imp-S {
+  background: #9f1239;
+}
+
+.jh-imp.imp-B {
+  background: #8a93a6;
+}
+
+/* 4択テスト */
+.jh-question {
+  position: relative;
+  margin: 14px 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.8;
+}
+
+.jh-blank {
+  white-space: nowrap;
+}
+
+.jh-fill {
+  color: #9f1239;
+  border-bottom: 2px solid #9f1239;
+}
+
+.jh-choices {
+  grid-template-columns: 1fr 1fr;
+}
+
+@media (max-width: 520px) {
+  .jh-question {
+    font-size: 16px;
+  }
+  .jh-choices {
+    grid-template-columns: 1fr;
+  }
+}
+
+.jh-feedback {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f4f6fa;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.jh-feedback-label {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  background: #55617d;
+}
+
+.jh-confused .jh-feedback-label {
+  background: #9a3412;
+}
+
+.jh-review {
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border);
+  line-height: 1.7;
+}
+
+.jh-review-sub {
+  font-size: 12px;
+}
+
+.jh-result-number {
+  font-size: 64px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--primary);
+}
+
+.choices.jh-choices {
+  display: grid;
+  gap: 10px;
+}
+
+/* 日本史：今日の学習 */
+.jh-today-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: #fff;
+  background: linear-gradient(135deg, #7f1d1d, #be123c);
+}
+
+.jh-today-icon {
+  font-size: 34px;
+}
+
+.jh-today-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.jh-today-body b {
+  font-size: 20px;
+}
+
+.jh-today-body small {
+  opacity: 0.92;
+}
+
+.jh-today-go {
+  min-width: 2.4em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fff;
+  color: #9f1239;
+  font-weight: 900;
+  text-align: center;
+}
+
+.jh-quota {
+  padding: 12px 16px;
+}
+
+.jh-quota-main {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-weight: 800;
+}
+
+.jh-quota-sub {
+  font-size: 12px;
+}
+
+.jh-hint {
+  margin-left: 4px;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.jh-tf-ask {
+  margin: 10px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.jh-tf-buttons,
+.jh-self {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.jh-self {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.jh-tf-buttons .btn,
+.jh-self .btn {
+  justify-content: center;
+  padding: 14px 6px;
+}
+
+.jh-tf-buttons .btn.is-answer {
+  border-color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.jh-tf-buttons .btn.is-wrong {
+  border-color: #9a3412;
+  background: #fff1e6;
+}
+
+.jh-tf-buttons .btn.dim {
+  opacity: 0.5;
+}
+
+.jh-self-o {
+  border-color: var(--ok) !important;
+}
+
+.jh-self-t {
+  border-color: #d97706 !important;
+}
+
+.jh-self-x {
+  border-color: #64748b !important;
+}
+
+.jh-wrong-word {
+  color: #9a3412;
+  text-decoration: line-through;
+}
+
+.jh-wrong-text .jh-fill {
+  color: #9a3412;
+  border-bottom-color: #9a3412;
+}
+
+.jh-feedback-label.wrong {
+  background: #9a3412;
+}
+
+.jh-diff-note {
+  font-size: 12px;
+}
+
+.jh-verdict {
+  margin: 10px 0 0;
+  font-weight: 800;
+}
+
+.jh-verdict.o {
+  color: var(--ok);
+}
+
+.jh-verdict.t {
+  color: #d97706;
+}
+
+.jh-verdict.x {
+  color: #9a3412;
+}
+
+.jh-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jh-settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-weight: 800;
+}
+
+.jh-settings-row .input {
+  max-width: 220px;
+}
