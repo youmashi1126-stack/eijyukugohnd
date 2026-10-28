@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { JHIST_QUESTION_COUNT, JHIST_SECTION_COUNT } from "@/data/jhist/meta";
 import { JHIST_ERAS } from "@/data/jhist/meta";
-import { CHRONO_COUNT, TEST_COUNT } from "@/lib/jhist/constants";
+import { CHRONO_COUNT, EXAM_COUNT, TEST_COUNT } from "@/lib/jhist/constants";
 import { useJhistData } from "@/lib/jhist/client";
 import { PairList } from "./PairList";
 import { useConfusions } from "./useConfusions";
@@ -11,7 +11,6 @@ import { markOf } from "@/lib/jhist/profile";
 import { useJhistMe } from "./useJhistMe";
 
 // これから追加するメニュー
-const COMING = [{ icon: "🎯", title: "入試形式トレーニング", sub: "入力記述・3文正誤・複数選択・組合せ" }];
 
 function shortDate(date: string) {
   const [y, m, d] = date.split("-").map(Number);
@@ -165,13 +164,11 @@ export default function JhistCorner() {
 
       {/* 9. 入試形式トレーニング */}
       <div className="menu">
-        {COMING.map((m) => (
-          <div key={m.title} className="menu-card menu-review empty jh-coming">
-            <div className="menu-icon">{m.icon}</div>
-            <div className="menu-title">{m.title}</div>
-            <div className="menu-sub">{m.sub}（準備中）</div>
-          </div>
-        ))}
+        <Link href="/jhist/exam" className="menu-card menu-review">
+          <div className="menu-icon">🎯</div>
+          <div className="menu-title">入試形式トレーニング</div>
+          <div className="menu-sub">入力記述・3文正誤・複数選択・組合せを{EXAM_COUNT}問ずつ（ノルマ・ランキングには入りません）</div>
+        </Link>
       </div>
     </>
   );

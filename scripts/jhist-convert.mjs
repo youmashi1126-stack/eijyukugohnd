@@ -265,7 +265,7 @@ async function main() {
 
 export { JHIST_DATA_URL, JHIST_ERAS, JHIST_SECTION_COUNT, JHIST_QUESTION_COUNT, JHIST_TERM_COUNT } from "./meta";
 
-// 問題ID|用語の番号|時代|重要度|セクションの番号|正解|別解（「、」区切り）
+// 問題ID|用語の番号|時代|重要度|セクションの番号|正解|別解（「、」区切り）|読みを問う問題なら r
 export const JHIST_QUESTIONS = \`${questions
     .map((q) =>
       [
@@ -276,6 +276,8 @@ export const JHIST_QUESTIONS = \`${questions
         sectionOf.get(str(q["問題ID"])),
         esc(str(q["正解"])),
         esc(str(q["別解"])),
+        // 読み（かな）を問う問題（lib/jhist/exam.ts の isReadingQuestion と同じ決まり）
+        /読み(方)?を(答え|記せ|書け)|何と読|読みがな|ふりがな/.test(str(q["問題文"])) ? "r" : "",
       ].join("|"),
     )
     .join("\n")}\`;

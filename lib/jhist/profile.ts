@@ -11,7 +11,12 @@ export const IMPS = ["S", "A", "B"] as const;
 export type Imp = (typeof IMPS)[number];
 
 // 入試日と目標。set が false の間は初期値のまま（初回に確認する）
-export type JhistSettings = { examDate: string; goal: Goal; set: boolean };
+// writeMode：記述の採点方法（self＝自己採点／input＝入力して採点）、examLevel：入試形式トレーニングの難易度（basic＝基本／adv＝発展）
+// どちらも選んでいなければ目標で決まる（日東駒専・GMARCH→自己採点・基本、早慶上智→入力して採点・発展）。段階の遷移表は同じ
+export type WriteMode = "self" | "input";
+export type ExamLevel = "basic" | "adv";
+export type JhistSettings = { examDate: string; goal: Goal; set: boolean; writeMode?: WriteMode; examLevel?: ExamLevel };
+export type ResolvedSettings = JhistSettings & { writeMode: WriteMode; examLevel: ExamLevel };
 
 // その日のノルマ（その日の最初に決める）：新出・復習の目標数と、終わった数。terms はその日に答えた用語の番号
 export type Daily = { date: string; newTarget: number; reviewTarget: number; newDone: number; reviewDone: number; terms: number[]; achieved: boolean };
@@ -59,8 +64,9 @@ export function defaultExamDate(today: string) {
   return today <= thisYear ? thisYear : `${y + 1}-${DEFAULT_EXAM_MONTH_DAY}`;
 }
 
-export function settingsOf(p: JhistProfile, today: string): JhistSettings {
-  return p.settings ?? { examDate: defaultExamDate(today), goal: "std", set: false };
+export function settingsOf(p: JhistProfile, today: string): ResolvedSettings {
+  const s = p.settings ?? { examDate: defaultExamDate(today), goal: "std" as Goal, set: false };
+  return { ...s, writeMode: s.writeMode ?? (s.goal === "adv" ? "input" : "self"), examLevel: s.examLevel ?? (s.goal === "adv" ? "adv" : "basic") };
 }
 
 // 保存されている値を正しい形にそろえる（以前の形・壊れた値にも対応する）
@@ -75,7 +81,16 @@ export function toProfile(v: unknown): JhistProfile {
   return {
     practice,
     attempts: Array.isArray(o.attempts) ? o.attempts.filter((a) => typeof a === "string").slice(-KEEP_ATTEMPTS) : [],
-    settings: s && isDate(s.examDate) && (s.goal === "std" || s.goal === "adv") ? { examDate: s.examDate, goal: s.goal, set: s.set !== false } : null,
+    settings:
+      s && isDate(s.examDate) && (s.goal === "std" || s.goal === "adv")
+        ? {
+            examDate: s.examDate,
+            goal: s.goal,
+            set: s.set !== false,
+            ...(s.writeMode === "self" || s.writeMode === "input" ? { writeMode: s.writeMode } : {}),
+            ...(s.examLevel === "basic" || s.examLevel === "adv" ? { examLevel: s.examLevel } : {}),
+          }
+        : null,
     daily:
       d && isDate(d.date)
         ? {

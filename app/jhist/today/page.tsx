@@ -6,9 +6,10 @@ import { playSfx } from "@/lib/sound";
 import { BLANK, shuffle, useJhistData, type CQuestion, type JData } from "@/lib/jhist/client";
 import { HESITATE_SEC, REQUEUE_AFTER, REQUEUE_MAX_STAGE, WRONG_TO } from "@/lib/jhist/constants";
 import { lengthHint } from "@/lib/jhist/hint";
-import { type Daily, type Goal, type JhistSettings } from "@/lib/jhist/profile";
+import { type Daily, type Goal, type ResolvedSettings } from "@/lib/jhist/profile";
 import { formatOf, type Format, type Mark } from "@/lib/jhist/srs";
 import { useSet } from "../../SetContext";
+import { InputAnswer } from "../InputAnswer";
 import { Feedback } from "../parts";
 import { JhistSettingsForm } from "../SettingsForm";
 
@@ -20,7 +21,7 @@ const FORMAT_LABEL: Record<Format, string> = { choice: "4択", tf: "正誤", wri
 type QueueItem = { qid: string; term: number; stage: number; format: Format; isNew: boolean };
 type Status = {
   today: string;
-  settings: JhistSettings;
+  settings: ResolvedSettings;
   daily: Daily;
   remaining: number;
   streak: number;
@@ -29,7 +30,7 @@ type Status = {
 };
 // 出題中の1問：4択なら選択肢、正誤なら見せる文が誤文か
 type Step = QueueItem & { choices: string[]; shownWrong: boolean; again: boolean };
-type Sent = { qid: string; sec: number; format: Format; chosen?: string | null; shownWrong?: boolean; judged?: boolean; self?: Mark };
+type Sent = { qid: string; sec: number; format: Format; chosen?: string | null; shownWrong?: boolean; judged?: boolean; self?: Mark; input?: string };
 
 function makeStep(data: JData, item: QueueItem, again = false): Step {
   const q = data.byId.get(item.qid)!;
@@ -270,12 +271,17 @@ export default function JhistTodayPage() {
 
         {step.format === "choice" && <ChoiceStep step={step} q={q} phase={phase} chosen={last?.chosen} onPick={(c) => record({ chosen: c }, c === q.answer ? "o" : "x")} />}
         {step.format === "tf" && <TfStep step={step} q={q} phase={phase} judged={last?.judged} onJudge={(j) => record({ shownWrong: step.shownWrong, judged: j }, j === !step.shownWrong ? "o" : "x")} />}
-        {step.format === "write" && <WriteStep q={q} phase={phase} onReveal={() => setPhase("reveal")} onSelf={(m) => record({ self: m }, m)} />}
+        {step.format === "write" &&
+          (status.settings.writeMode === "input" ? (
+            <InputAnswer key={idx} q={q} level={status.settings.examLevel} onJudged={(input, j) => record({ input }, j.mark)} />
+          ) : (
+            <WriteStep q={q} phase={phase} onReveal={() => setPhase("reveal")} onSelf={(m) => record({ self: m }, m)} />
+          ))}
 
         {answered && last && (
           <>
             <p className={`jh-verdict ${last.mark}`}>
-              {last.mark === "o" ? (last.hesitant ? "◯ 正解（迷った正解：段階はそのまま、明日もう一度）" : "◯ 正解") : last.mark === "t" ? "△ あやふや（明日もう一度）" : "✕ 不正解"}
+              {last.mark === "o" ? (last.hesitant ? "◯ 正解（迷った正解：段階はそのまま、明日もう一度）" : "◯ 正解") : last.mark === "t" ? (step.format === "write" && status.settings.writeMode === "input" ? "△ 1文字違い・誤字の可能性（明日もう一度）" : "△ あやふや（明日もう一度）") : "✕ 不正解"}
               {last.mark === "x" && step.stage <= REQUEUE_MAX_STAGE && <span className="muted">・このあともう一度出ます</span>}
             </p>
             <Feedback data={data} q={q} chosen={step.format === "choice" ? (last.chosen ?? null) : undefined} showWrong={step.format === "tf" && last.mark === "x"} />

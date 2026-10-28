@@ -1,10 +1,11 @@
 // 日本史：送られてきた回答をサーバーで採点し、記憶の段階・ノルマ・記録をまとめて保存する
 import { getStore, type JhistAnswerStat } from "../store";
 import { jstDate } from "../types";
-import { CONFUSION_QUESTIONS_PER_TERM, KEEP_ATTEMPTS, PRACTICE_COUNT, REPORT_MAX, TEST_GRACE_SEC, TEST_HISTORY, TEST_SEC } from "./constants";
+import { CONFUSION_QUESTIONS_PER_TERM, EXAM_COUNT, KEEP_ATTEMPTS, MULTI_SIZE, PRACTICE_COUNT, REPORT_MAX, TEST_GRACE_SEC, TEST_HISTORY, TEST_SEC } from "./constants";
 import { jhistIndex, type JQuestion } from "./data";
 import { dailyFor, eraStats, fromTermStates, summarize, toTermStates, withFixedHistory, type TermStates } from "./plan";
-import { markOf, settingsOf, toProfile, type Daily, type Goal, type JhistProfile } from "./profile";
+import { judgeInput } from "./exam";
+import { markOf, settingsOf, toProfile, type Daily, type ExamLevel, type Goal, type JhistProfile } from "./profile";
 import { buildTest, scoreOf } from "./test";
 import { applyAnswer, dateOf, dayNumber, isHesitant, type Format, type Mark } from "./srs";
 
@@ -20,6 +21,7 @@ export type SubmittedAnswer = {
   shownWrong?: boolean;
   judged?: boolean;
   self?: Mark;
+  input?: string; // 記述を入力して採点するとき、入力した文字列
 };
 
 export function isSubmittedAnswer(v: unknown): v is SubmittedAnswer {
@@ -28,7 +30,7 @@ export function isSubmittedAnswer(v: unknown): v is SubmittedAnswer {
   const format = a.format ?? "choice";
   if (format === "choice") return a.chosen === null || typeof a.chosen === "string";
   if (format === "tf") return typeof a.shownWrong === "boolean" && typeof a.judged === "boolean";
-  if (format === "write") return a.self === "o" || a.self === "t" || a.self === "x";
+  if (format === "write") return a.self === "o" || a.self === "t" || a.self === "x" || (typeof a.input === "string" && a.input.length <= 60);
   return false;
 }
 
@@ -38,10 +40,12 @@ export function isChoiceCorrect(q: JQuestion, chosen: string | null | undefined)
 }
 
 // 形式ごとの採点（記述は自己採点のまま）
-export function gradeAnswer(q: JQuestion, a: SubmittedAnswer): Mark {
+// 形式ごとの採点。記述は、入力した文字列があればサーバーで採点し直す（基本は1文字違いを△、発展は×）、なければ自己採点のまま
+export function gradeAnswer(q: JQuestion, a: SubmittedAnswer, level: ExamLevel = "basic"): Mark {
   const format = a.format ?? "choice";
   if (format === "choice") return isChoiceCorrect(q, a.chosen) ? "o" : "x";
   if (format === "tf") return a.judged === !a.shownWrong ? "o" : "x";
+  if (typeof a.input === "string") return judgeInput(q.answer, q.alts, a.input, level, q.reading).mark;
   return a.self ?? "x";
 }
 
@@ -54,7 +58,7 @@ export function confusionOf(q: JQuestion, chosen: string | null | undefined): { 
 }
 
 // 回答をまとめて反映する（記憶の段階・ログ・集計）
-function applyAll(states: TermStates, answers: SubmittedAnswer[], today: string, mode: "today" | "intro" | "check", source: string) {
+function applyAll(states: TermStates, answers: SubmittedAnswer[], today: string, mode: "today" | "intro" | "check", source: string, level: ExamLevel = "basic") {
   const idx = jhistIndex();
   const day = dayNumber(today);
   const at = new Date().toISOString();
@@ -64,7 +68,7 @@ function applyAll(states: TermStates, answers: SubmittedAnswer[], today: string,
   const entries = answers.map((a) => {
     const q = idx.byId.get(a.qid)!;
     const format = a.format ?? "choice";
-    const mark = gradeAnswer(q, a);
+    const mark = gradeAnswer(q, a, level);
     const prev = states.get(q.term);
     const { state } = applyAnswer(prev, { mark, format, sec: a.sec, qid: q.id, at }, day, mode);
     // 練習・実力テストでは、未学習の用語は段階1に上がったとき（練習の正解）だけ記録を作る。
@@ -76,7 +80,8 @@ function applyAll(states: TermStates, answers: SubmittedAnswer[], today: string,
     const c = format === "choice" && mark !== "o" ? confusionOf(q, a.chosen) : null;
     if (c) confusions.push(c);
     // [問題ID, 用語ID, 形式, ○△×, 秒数, 選んだ語・答え]
-    const detail = format === "choice" ? (mark === "o" ? "" : (a.chosen ?? "")) : format === "tf" ? `${a.shownWrong ? "誤文" : "正文"}→${a.judged ? "正" : "誤"}` : "";
+    const detail =
+      format === "choice" ? (mark === "o" ? "" : (a.chosen ?? "")) : format === "tf" ? `${a.shownWrong ? "誤文" : "正文"}→${a.judged ? "正" : "誤"}` : (a.input ?? "");
     return [q.id, idx.terms[q.term].id, format === "choice" ? "4" : format, mark, Math.round(a.sec * 10) / 10, detail];
   });
   return { stats, confusions, results, log: { source, entries } };
@@ -177,7 +182,7 @@ export async function recordToday(number: number, attemptId: string, answers: Su
   if (attemptId && profile.attempts.includes(attemptId)) {
     return { results: [], daily, streak: profile.streak.count, achievedNow: false, duplicate: true };
   }
-  const applied = applyAll(states, answers, today, "today", "today");
+  const applied = applyAll(states, answers, today, "today", "today", settings.examLevel);
   const { daily: nextDaily, streak, achievedNow } = countDaily(daily, profile.streak, applied.results, today);
   const next: JhistProfile = {
     ...profile,
@@ -312,4 +317,25 @@ export async function reportQuestion(number: number, qid: string, text: string) 
   const clean = [...String(text ?? "").replace(/[\r\n\t]+/g, " ").trim()].slice(0, REPORT_MAX).join("");
   await getStore().addJhistReport(number, qid, clean);
   return { ok: true };
+}
+
+// 入試形式トレーニング（入力記述・3文正誤・複数選択・組合せ）。ノルマ・連続日数・ランキングには入れない
+// 段階への影響は実力テストと同じ（正解しても上げず、不正解なら下げる）。3文正誤・複数選択は1文ずつ、組合せは空欄ごとに送られてくる
+export async function recordExam(number: number, attemptId: string, answers: SubmittedAnswer[]): Promise<{ ok: number; n: number } | { error: string }> {
+  const idx = jhistIndex();
+  if (!answers.length || answers.length > EXAM_COUNT * MULTI_SIZE || !answers.every((a) => idx.byId.has(a.qid))) return { error: "解答データが正しくありません" };
+  const store = getStore();
+  const [rawProfile, rawTerms] = await Promise.all([store.getJhistProfile(number), store.getJhistTerms(number)]);
+  const profile = toProfile(rawProfile);
+  if (attemptId && profile.attempts.includes(attemptId)) return { ok: 0, n: 0 };
+  const today = jstDate();
+  const states = toTermStates(rawTerms);
+  const applied = applyAll(states, answers, today, "check", "exam", settingsOf(profile, today).examLevel);
+  const next: JhistProfile = {
+    ...profile,
+    attempts: attemptId ? [...profile.attempts, attemptId].slice(-KEEP_ATTEMPTS) : profile.attempts,
+    ...summaryFields(profile, states, today),
+  };
+  await store.saveJhist(number, { profile: next, terms: fromTermStates(states), log: applied.log, stats: applied.stats, confusions: applied.confusions });
+  return { ok: applied.results.filter((r) => r.mark === "o").length, n: answers.length };
 }
