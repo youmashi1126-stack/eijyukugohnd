@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Accounts from "./Accounts";
+import JhistTeacher from "./JhistTeacher";
 
 // 管理者ページ：データのバックアップ（ファイルに保存）と読み込み（アップロード）
 type Status = { hasPassword: boolean; storage: string; persistent: boolean };
@@ -226,6 +227,13 @@ export default function AdminPage() {
               return post({ action: "accounts", password });
             }}
             loadOne={loadAccount}
+          />
+
+          <JhistTeacher
+            post={async (body) => {
+              if (!password) throw new Error("先に管理者パスワードを入力してください");
+              return post({ ...body, password });
+            }}
           />
 
           <div className="card">

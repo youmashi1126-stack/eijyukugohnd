@@ -50,3 +50,21 @@ export const TEST_HISTORY = 30;
 export const PACE_DAYS = 14;
 // 定着語数の記録を残す日数
 export const FIXED_HISTORY_DAYS = 90;
+
+// ---------- 年代チャレンジ（仕様9-4） ----------
+// 毎日5問。並べ替え・最も近い年・前後の判定を混ぜる
+export const CHRONO_COUNT = 5;
+// 並べ替えの項目数：基本は3、発展は4〜5
+export const CHRONO_SORT_BASIC = 3;
+export const CHRONO_SORT_ADV = [4, 5];
+// 最も近い年の出来事：正解との差より、誤答との差がこの年数以上大きいこと（正解が1つに決まるように）
+export const CHRONO_NEAREST_GAP = { basic: 20, adv: 5 };
+// 前後の判定：基本は4つから1つ、発展は5つからすべて
+export const CHRONO_AFTER_BASIC = 4;
+export const CHRONO_AFTER_ADV = 5;
+
+// ---------- 取り違えやすい語・問題の報告 ----------
+export const CONFUSION_TOP = 10;
+// 取り違えの特訓で、1つの用語から出す問題の数（多いときはこの数まで）
+export const CONFUSION_QUESTIONS_PER_TERM = 3;
+export const REPORT_MAX = 100;

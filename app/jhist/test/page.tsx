@@ -7,7 +7,7 @@ import { BLANK, shuffle, useJhistData, type CQuestion } from "@/lib/jhist/client
 import { TEST_COUNT, TEST_SEC } from "@/lib/jhist/constants";
 import type { Goal } from "@/lib/jhist/profile";
 import { useSet } from "../../SetContext";
-import { Filled } from "../parts";
+import { Filled, ReportButton } from "../parts";
 
 const LABELS = ["ア", "イ", "ウ", "エ"];
 const FLASH_MS = 150;
@@ -208,6 +208,7 @@ export default function JhistTestPage() {
                     {picks[i] ? `あなたの答え：${picks[i]}` : "未回答"}
                     {it.q.alts.length > 0 && `・別解：${it.q.alts.join("、")}`}
                   </div>
+                  <ReportButton qid={it.q.id} />
                 </div>
               );
             })}
