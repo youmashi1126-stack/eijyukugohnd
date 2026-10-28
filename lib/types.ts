@@ -19,7 +19,8 @@ export const MASTERY_POINTS = { test: 3, practice: 2, review: 1.5 } as const;
 
 // corners：マイページで選んだ、表示するコーナー（未設定ならすべて表示）
 // hidden：マイページで選んだ、ほかの人に見せないコーナー（友達のページ・ランキング・みんなの目標に出さない）
-export type User = { number: number; nickname: string; createdAt: string; corners?: string[]; hidden?: string[] };
+// cornersKnown：表示するコーナーを保存したときにあったコーナー（あとで増えたコーナーは表示する）
+export type User = { number: number; nickname: string; createdAt: string; corners?: string[]; cornersKnown?: string[]; hidden?: string[] };
 
 export const NICKNAME_MAX = 12;
 

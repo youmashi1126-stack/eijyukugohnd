@@ -87,7 +87,48 @@ function sliceAll(all: Record<number, StudyLog>, weeks: string[]): StudyWeeks {
   return { logs, last };
 }
 
-export type UserPatch = { nickname?: string; corners?: string[]; hidden?: string[] };
+export type UserPatch = { nickname?: string; corners?: string[]; cornersKnown?: string[]; hidden?: string[] };
+
+// ---------- 日本史（jhist_ で始まる専用の保存先。英単語などの記録・習熟ポイントとは混ぜない） ----------
+// profile：設定・練習の記録・集計など、terms：用語ごとの記憶の段階（どちらも中身の形は lib/jhist で決める）
+// log：回答ログ（1回の送信ごとに1行。365日たったら消す）、stats：問題ごとの回答数・正解数・選ばれた誤答の数（教員向け。消さない）
+// confusions：取り違えた組（正解の用語・選んだ誤答）の回数
+export type JhistAnswerStat = { qid: string; ok: boolean; wrong?: string };
+export type JhistSave = {
+  profile?: unknown;
+  terms?: unknown;
+  log?: { source: string; entries: unknown[] };
+  stats?: JhistAnswerStat[];
+  confusions?: { term: string; wrong: string }[];
+};
+export type JhistQuestionStat = { qid: string; n: number; ok: number; wrong: Record<string, number> };
+export type JhistConfusion = { term: string; wrong: string; n: number };
+export type JhistReport = { id: number; number: number; qid: string; text: string; at: string };
+export type JhistDump = { profile: Record<string, unknown>; terms: Record<string, unknown>; confusions?: Record<string, JhistConfusion[]> };
+// 回答ログを残す日数
+export const JHIST_LOG_DAYS = 365;
+
+// 送られてきた回答を、問題ごと・誤答ごと・取り違えごとの回数にまとめる
+function tally(save: JhistSave) {
+  const stats = new Map<string, { n: number; ok: number }>();
+  const wrong = new Map<string, { qid: string; choice: string; n: number }>();
+  for (const a of save.stats ?? []) {
+    const s = stats.get(a.qid) ?? { n: 0, ok: 0 };
+    s.n++;
+    if (a.ok) s.ok++;
+    stats.set(a.qid, s);
+    if (!a.ok && a.wrong) {
+      const k = `${a.qid}|${a.wrong}`;
+      wrong.set(k, { qid: a.qid, choice: a.wrong, n: (wrong.get(k)?.n ?? 0) + 1 });
+    }
+  }
+  const confusions = new Map<string, { term: string; wrong: string; n: number }>();
+  for (const c of save.confusions ?? []) {
+    const k = `${c.term}|${c.wrong}`;
+    confusions.set(k, { ...c, n: (confusions.get(k)?.n ?? 0) + 1 });
+  }
+  return { stats: [...stats].map(([qid, v]) => ({ qid, ...v })), wrong: [...wrong.values()], confusions: [...confusions.values()] };
+}
 
 // 以前の番号（1〜35）は 301〜335 番に移した。移す前のバックアップを読み込むときも同じように移す
 const RENUMBER_FROM = 1;
@@ -113,6 +154,7 @@ function applyUserPatch(user: User, patch: UserPatch): User {
     ...user,
     ...(patch.nickname !== undefined && { nickname: patch.nickname }),
     ...(patch.corners !== undefined && { corners: patch.corners }),
+    ...(patch.cornersKnown !== undefined && { cornersKnown: patch.cornersKnown }),
     ...(patch.hidden !== undefined && { hidden: patch.hidden }),
   };
 }
@@ -157,6 +199,18 @@ interface Store {
   getPastExams(): Promise<Record<number, Exam[]>>;
   getPastExamsOf(number: number): Promise<Exam[]>;
   savePastExams(number: number, list: Exam[]): Promise<Exam[]>;
+  // 日本史
+  getJhistProfile(number: number): Promise<unknown | null>;
+  getJhistProfiles(): Promise<Record<number, unknown>>;
+  getJhistTerms(number: number): Promise<unknown | null>;
+  saveJhist(number: number, save: JhistSave): Promise<void>;
+  getJhistConfusions(number: number): Promise<JhistConfusion[]>;
+  getJhistQuestionStats(): Promise<JhistQuestionStat[]>;
+  addJhistReport(number: number, qid: string, text: string): Promise<void>;
+  getJhistReports(): Promise<JhistReport[]>;
+  // バックアップ（設定・記憶の段階・取り違え。回答ログと問題ごとの集計は含めない）
+  exportJhist(): Promise<JhistDump>;
+  importJhist(dump: JhistDump): Promise<number>;
 }
 
 const KEEP_ATTEMPTS = 20;
@@ -330,6 +384,13 @@ const STUDY_KEY = "eijukugo:study";
 const MATERIALS_KEY = "eijukugo:materials";
 const PAST_EXAMS_KEY = "eijukugo:pastexams";
 const MIGRATED_KEY = "eijukugo:v2:migrated";
+const JH_PROFILE_KEY = "eijukugo:jhist:profile";
+const JH_TERMS_KEY = "eijukugo:jhist:terms";
+const JH_LOG_KEY = "eijukugo:jhist:log";
+const JH_STATS_KEY = "eijukugo:jhist:stats";
+const JH_WRONG_KEY = "eijukugo:jhist:wrong";
+const JH_CONFUSION_KEY = "eijukugo:jhist:confusions";
+const JH_REPORT_KEY = "eijukugo:jhist:reports";
 const RENUMBERED_KEY = "eijukugo:renumbered";
 // 英熟語は以前からのキーをそのまま使い、英単語・中学英語は別のキーに保存する
 function redisKey(set: SetId, kind: Kind): string | null {
@@ -669,6 +730,85 @@ class RedisStore implements Store {
     await this.redis.hset(PAST_EXAMS_KEY, { [String(number)]: JSON.stringify(next) });
     return next;
   }
+
+  // 日本史（Redis＝以前の Vercel 版。数の多い記録は最新のものだけ残す）
+  async getJhistProfile(number: number) {
+    return parse<unknown>(await this.redis.hget(JH_PROFILE_KEY, String(number)), null);
+  }
+
+  async getJhistProfiles() {
+    return byNumber<unknown>(await this.redis.hgetall(JH_PROFILE_KEY), null);
+  }
+
+  async getJhistTerms(number: number) {
+    return parse<unknown>(await this.redis.hget(JH_TERMS_KEY, String(number)), null);
+  }
+
+  async saveJhist(number: number, save: JhistSave) {
+    const f = String(number);
+    const t = tally(save);
+    const p = this.redis.pipeline();
+    if (save.profile !== undefined) p.hset(JH_PROFILE_KEY, { [f]: JSON.stringify(save.profile) });
+    if (save.terms !== undefined) p.hset(JH_TERMS_KEY, { [f]: JSON.stringify(save.terms) });
+    if (save.log) {
+      p.lpush(JH_LOG_KEY, JSON.stringify({ number, at: new Date().toISOString(), ...save.log }));
+      p.ltrim(JH_LOG_KEY, 0, 20000);
+    }
+    for (const s of t.stats) {
+      p.hincrby(JH_STATS_KEY, `${s.qid}|n`, s.n);
+      if (s.ok) p.hincrby(JH_STATS_KEY, `${s.qid}|ok`, s.ok);
+    }
+    for (const w of t.wrong) p.hincrby(JH_WRONG_KEY, `${w.qid}|${w.choice}`, w.n);
+    for (const c of t.confusions) p.hincrby(`${JH_CONFUSION_KEY}:${f}`, `${c.term}|${c.wrong}`, c.n);
+    await p.exec();
+  }
+
+  async getJhistConfusions(number: number) {
+    const all = (await this.redis.hgetall<Record<string, number>>(`${JH_CONFUSION_KEY}:${number}`)) ?? {};
+    return Object.entries(all).map(([k, n]) => {
+      const [term, wrong] = k.split("|");
+      return { term, wrong, n: Number(n) };
+    });
+  }
+
+  async getJhistQuestionStats() {
+    const [stats, wrong] = await Promise.all([this.redis.hgetall<Record<string, number>>(JH_STATS_KEY), this.redis.hgetall<Record<string, number>>(JH_WRONG_KEY)]);
+    const out = new Map<string, JhistQuestionStat>();
+    const get = (qid: string) => out.get(qid) ?? out.set(qid, { qid, n: 0, ok: 0, wrong: {} }).get(qid)!;
+    for (const [k, v] of Object.entries(stats ?? {})) {
+      const [qid, kind] = k.split("|");
+      get(qid)[kind === "ok" ? "ok" : "n"] = Number(v);
+    }
+    for (const [k, v] of Object.entries(wrong ?? {})) {
+      const i = k.indexOf("|");
+      get(k.slice(0, i)).wrong[k.slice(i + 1)] = Number(v);
+    }
+    return [...out.values()];
+  }
+
+  async addJhistReport(number: number, qid: string, text: string) {
+    const id = await this.redis.incr(`${JH_REPORT_KEY}:id`);
+    await this.redis.lpush(JH_REPORT_KEY, JSON.stringify({ id, number, qid, text, at: new Date().toISOString() }));
+  }
+
+  async getJhistReports() {
+    return ((await this.redis.lrange(JH_REPORT_KEY, 0, -1)) ?? []).map((v) => parse<JhistReport>(v, {} as JhistReport));
+  }
+
+  async exportJhist() {
+    const [profile, terms] = await Promise.all([this.redis.hgetall<Record<string, unknown>>(JH_PROFILE_KEY), this.redis.hgetall<Record<string, unknown>>(JH_TERMS_KEY)]);
+    const parsed = (h: Record<string, unknown> | null) => Object.fromEntries(Object.entries(h ?? {}).map(([k, v]) => [k, parse<unknown>(v, null)]));
+    return { profile: parsed(profile), terms: parsed(terms) };
+  }
+
+  async importJhist(dump: JhistDump) {
+    const p = this.redis.pipeline();
+    const str = (h: Record<string, unknown>) => Object.fromEntries(Object.entries(h).map(([k, v]) => [k, JSON.stringify(v)]));
+    if (Object.keys(dump.profile ?? {}).length) p.hset(JH_PROFILE_KEY, str(dump.profile));
+    if (Object.keys(dump.terms ?? {}).length) p.hset(JH_TERMS_KEY, str(dump.terms));
+    await p.exec();
+    return Object.keys(dump.profile ?? {}).length;
+  }
 }
 
 // ---------- Cloudflare D1（Cloudflare 版） ----------
@@ -696,6 +836,15 @@ const D1_SCHEMA = [
   // 学習時間を週ごとに分けたもの（study から作る。ランキングなどで必要な週だけ読む）と、1人分の目標・最後に記録した日
   "CREATE TABLE IF NOT EXISTS study_weeks (week TEXT NOT NULL, number INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (week, number))",
   "CREATE TABLE IF NOT EXISTS study_meta (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
+  // 日本史（英単語などの records とは別のテーブル）
+  "CREATE TABLE IF NOT EXISTS jhist_profile (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS jhist_terms (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS jhist_log (id INTEGER PRIMARY KEY AUTOINCREMENT, number INTEGER NOT NULL, at TEXT NOT NULL, source TEXT NOT NULL, data TEXT NOT NULL)",
+  "CREATE INDEX IF NOT EXISTS jhist_log_at ON jhist_log (at)",
+  "CREATE TABLE IF NOT EXISTS jhist_qstats (qid TEXT PRIMARY KEY, n INTEGER NOT NULL, ok INTEGER NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS jhist_qwrong (qid TEXT NOT NULL, choice TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (qid, choice))",
+  "CREATE TABLE IF NOT EXISTS jhist_confusions (number INTEGER NOT NULL, term TEXT NOT NULL, wrong TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (number, term, wrong))",
+  "CREATE TABLE IF NOT EXISTS jhist_reports (id INTEGER PRIMARY KEY AUTOINCREMENT, number INTEGER NOT NULL, qid TEXT NOT NULL, text TEXT NOT NULL, at TEXT NOT NULL)",
 ];
 const UPSERT_RECORD =
   "INSERT INTO records (set_id, kind, number, data) VALUES (?, ?, ?, ?) ON CONFLICT (set_id, kind, number) DO UPDATE SET data = excluded.data";
@@ -1061,6 +1210,138 @@ class D1Store implements Store {
     await this.db.prepare(UPSERT_PAST_EXAMS).bind(number, JSON.stringify(next)).run();
     return next;
   }
+
+  // ---------- 日本史 ----------
+  private purgedOn = "";
+
+  async getJhistProfile(number: number) {
+    await this.init();
+    const row = await this.db.prepare("SELECT data FROM jhist_profile WHERE number = ?").bind(number).first<{ data: string }>();
+    return row ? (JSON.parse(row.data) as unknown) : null;
+  }
+
+  async getJhistProfiles() {
+    await this.init();
+    const { results } = await this.db.prepare("SELECT number, data FROM jhist_profile").all<{ number: number; data: string }>();
+    return Object.fromEntries(results.map((r) => [r.number, JSON.parse(r.data) as unknown]));
+  }
+
+  async getJhistTerms(number: number) {
+    await this.init();
+    const row = await this.db.prepare("SELECT data FROM jhist_terms WHERE number = ?").bind(number).first<{ data: string }>();
+    return row ? (JSON.parse(row.data) as unknown) : null;
+  }
+
+  // 1回の送信を1つのまとまりで保存する。回数は「今の値に足す」形にして、同時に送られても数え漏れがないようにする
+  // D1 の1回の処理で使える問い合わせの数に限りがあるので、問題ごとの集計は複数行を1つの文にまとめる
+  async saveJhist(number: number, save: JhistSave) {
+    await this.init();
+    const t = tally(save);
+    const statements: D1Stmt[] = [];
+    if (save.profile !== undefined) {
+      statements.push(this.db.prepare("INSERT OR REPLACE INTO jhist_profile (number, data) VALUES (?, ?)").bind(number, JSON.stringify(save.profile)));
+    }
+    if (save.terms !== undefined) {
+      statements.push(this.db.prepare("INSERT OR REPLACE INTO jhist_terms (number, data) VALUES (?, ?)").bind(number, JSON.stringify(save.terms)));
+    }
+    if (save.log) {
+      statements.push(
+        this.db
+          .prepare("INSERT INTO jhist_log (number, at, source, data) VALUES (?, ?, ?, ?)")
+          .bind(number, new Date().toISOString(), save.log.source, JSON.stringify(save.log.entries)),
+      );
+    }
+    const many = <T,>(rows: T[], per: number, head: string, marks: string, tail: string, values: (r: T) => unknown[]) => {
+      for (let i = 0; i < rows.length; i += per) {
+        const chunk = rows.slice(i, i + per);
+        statements.push(this.db.prepare(`${head} VALUES ${chunk.map(() => marks).join(", ")} ${tail}`).bind(...chunk.flatMap(values)));
+      }
+    };
+    many(t.stats, 30, "INSERT INTO jhist_qstats (qid, n, ok)", "(?, ?, ?)", "ON CONFLICT (qid) DO UPDATE SET n = n + excluded.n, ok = ok + excluded.ok", (r) => [r.qid, r.n, r.ok]);
+    many(t.wrong, 30, "INSERT INTO jhist_qwrong (qid, choice, n)", "(?, ?, ?)", "ON CONFLICT (qid, choice) DO UPDATE SET n = n + excluded.n", (r) => [r.qid, r.choice, r.n]);
+    many(
+      t.confusions,
+      24,
+      "INSERT INTO jhist_confusions (number, term, wrong, n)",
+      "(?, ?, ?, ?)",
+      "ON CONFLICT (number, term, wrong) DO UPDATE SET n = n + excluded.n",
+      (r) => [number, r.term, r.wrong, r.n],
+    );
+    // 古い回答ログを消す（1日に1回だけ）
+    const today = new Date().toISOString().slice(0, 10);
+    if (this.purgedOn !== today) {
+      this.purgedOn = today;
+      statements.push(this.db.prepare("DELETE FROM jhist_log WHERE at < ?").bind(new Date(Date.now() - JHIST_LOG_DAYS * 86400000).toISOString()));
+    }
+    if (statements.length) await this.db.batch(statements);
+  }
+
+  async getJhistConfusions(number: number) {
+    await this.init();
+    const { results } = await this.db.prepare("SELECT term, wrong, n FROM jhist_confusions WHERE number = ?").bind(number).all<JhistConfusion>();
+    return results;
+  }
+
+  async getJhistQuestionStats() {
+    await this.init();
+    const [stats, wrong] = await Promise.all([
+      this.db.prepare("SELECT qid, n, ok FROM jhist_qstats").all<{ qid: string; n: number; ok: number }>(),
+      this.db.prepare("SELECT qid, choice, n FROM jhist_qwrong").all<{ qid: string; choice: string; n: number }>(),
+    ]);
+    const out = new Map(stats.results.map((r) => [r.qid, { ...r, wrong: {} as Record<string, number> }]));
+    for (const w of wrong.results) {
+      const s = out.get(w.qid);
+      if (s) s.wrong[w.choice] = w.n;
+    }
+    return [...out.values()];
+  }
+
+  async addJhistReport(number: number, qid: string, text: string) {
+    await this.init();
+    await this.db.prepare("INSERT INTO jhist_reports (number, qid, text, at) VALUES (?, ?, ?, ?)").bind(number, qid, text, new Date().toISOString()).run();
+  }
+
+  async getJhistReports() {
+    await this.init();
+    const { results } = await this.db.prepare("SELECT id, number, qid, text, at FROM jhist_reports ORDER BY id DESC").all<JhistReport>();
+    return results;
+  }
+
+  async exportJhist() {
+    await this.init();
+    const [profile, terms, conf] = await Promise.all([
+      this.db.prepare("SELECT number, data FROM jhist_profile").all<{ number: number; data: string }>(),
+      this.db.prepare("SELECT number, data FROM jhist_terms").all<{ number: number; data: string }>(),
+      this.db.prepare("SELECT number, term, wrong, n FROM jhist_confusions").all<JhistConfusion & { number: number }>(),
+    ]);
+    const confusions: Record<string, JhistConfusion[]> = {};
+    for (const c of conf.results) (confusions[c.number] ??= []).push({ term: c.term, wrong: c.wrong, n: c.n });
+    return {
+      profile: Object.fromEntries(profile.results.map((r) => [r.number, JSON.parse(r.data)])),
+      terms: Object.fromEntries(terms.results.map((r) => [r.number, JSON.parse(r.data)])),
+      confusions,
+    };
+  }
+
+  async importJhist(dump: JhistDump) {
+    await this.init();
+    const statements: D1Stmt[] = [];
+    for (const [n, v] of Object.entries(dump.profile ?? {})) {
+      statements.push(this.db.prepare("INSERT OR REPLACE INTO jhist_profile (number, data) VALUES (?, ?)").bind(Number(n), JSON.stringify(v)));
+    }
+    for (const [n, v] of Object.entries(dump.terms ?? {})) {
+      statements.push(this.db.prepare("INSERT OR REPLACE INTO jhist_terms (number, data) VALUES (?, ?)").bind(Number(n), JSON.stringify(v)));
+    }
+    for (const [n, list] of Object.entries(dump.confusions ?? {})) {
+      for (const c of list) {
+        statements.push(
+          this.db.prepare("INSERT OR REPLACE INTO jhist_confusions (number, term, wrong, n) VALUES (?, ?, ?, ?)").bind(Number(n), c.term, c.wrong, c.n),
+        );
+      }
+    }
+    for (let i = 0; i < statements.length; i += 50) await this.db.batch(statements.slice(i, i + 50));
+    return Object.keys(dump.profile ?? {}).length;
+  }
 }
 
 // ---------- ローカル開発用（.data/db.json に保存） ----------
@@ -1075,6 +1356,15 @@ type Db = {
   materials?: Record<string, Material[]>;
   pastExams?: Record<string, Exam[]>;
   renumbered?: boolean;
+  jhist?: {
+    profile: Record<string, unknown>;
+    terms: Record<string, unknown>;
+    log: { number: number; at: string; source: string; entries: unknown[] }[];
+    stats: Record<string, { n: number; ok: number }>;
+    wrong: Record<string, Record<string, number>>;
+    confusions: Record<string, JhistConfusion[]>;
+    reports: JhistReport[];
+  };
   // 以前の形式（英熟語のみ）
   results?: Record<string, TestResult[]>;
   practice?: Record<string, Record<string, number>>;
@@ -1308,6 +1598,78 @@ class LocalStore implements Store {
     (this.db.pastExams ??= {})[number] = next;
     this.save();
     return next;
+  }
+
+  // ---------- 日本史 ----------
+  private get jh() {
+    return (this.db.jhist ??= { profile: {}, terms: {}, log: [], stats: {}, wrong: {}, confusions: {}, reports: [] });
+  }
+
+  async getJhistProfile(number: number) {
+    return this.jh.profile[number] ?? null;
+  }
+
+  async getJhistProfiles() {
+    return Object.fromEntries(Object.entries(this.jh.profile).map(([k, v]) => [Number(k), v]));
+  }
+
+  async getJhistTerms(number: number) {
+    return this.jh.terms[number] ?? null;
+  }
+
+  async saveJhist(number: number, save: JhistSave) {
+    const jh = this.jh;
+    const t = tally(save);
+    if (save.profile !== undefined) jh.profile[number] = save.profile;
+    if (save.terms !== undefined) jh.terms[number] = save.terms;
+    if (save.log) {
+      jh.log.push({ number, at: new Date().toISOString(), ...save.log });
+      const limit = new Date(Date.now() - JHIST_LOG_DAYS * 86400000).toISOString();
+      jh.log = jh.log.filter((l) => l.at >= limit);
+    }
+    for (const r of t.stats) {
+      const s = (jh.stats[r.qid] ??= { n: 0, ok: 0 });
+      s.n += r.n;
+      s.ok += r.ok;
+    }
+    for (const w of t.wrong) (jh.wrong[w.qid] ??= {})[w.choice] = (jh.wrong[w.qid][w.choice] ?? 0) + w.n;
+    for (const c of t.confusions) {
+      const list = (jh.confusions[number] ??= []);
+      const found = list.find((x) => x.term === c.term && x.wrong === c.wrong);
+      if (found) found.n += c.n;
+      else list.push({ term: c.term, wrong: c.wrong, n: c.n });
+    }
+    this.save();
+  }
+
+  async getJhistConfusions(number: number) {
+    return this.jh.confusions[number] ?? [];
+  }
+
+  async getJhistQuestionStats() {
+    return Object.entries(this.jh.stats).map(([qid, s]) => ({ qid, n: s.n, ok: s.ok, wrong: this.jh.wrong[qid] ?? {} }));
+  }
+
+  async addJhistReport(number: number, qid: string, text: string) {
+    const reports = this.jh.reports;
+    reports.push({ id: (reports.at(-1)?.id ?? 0) + 1, number, qid, text, at: new Date().toISOString() });
+    this.save();
+  }
+
+  async getJhistReports() {
+    return [...this.jh.reports].reverse();
+  }
+
+  async exportJhist() {
+    return { profile: this.jh.profile, terms: this.jh.terms, confusions: this.jh.confusions };
+  }
+
+  async importJhist(dump: JhistDump) {
+    Object.assign(this.jh.profile, dump.profile ?? {});
+    Object.assign(this.jh.terms, dump.terms ?? {});
+    Object.assign(this.jh.confusions, dump.confusions ?? {});
+    this.save();
+    return Object.keys(dump.profile ?? {}).length;
   }
 }
 

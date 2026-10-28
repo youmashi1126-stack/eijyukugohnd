@@ -10,6 +10,7 @@ const LABEL: Record<Corner, string> = {
   word: `${SETS.word.icon} ${SETS.word.label}`,
   idiom: `${SETS.idiom.icon} ${SETS.idiom.label}`,
   jhs: `${SETS.jhs.icon} ${SETS.jhs.label}`,
+  jhist: `${EXTRA.jhist.icon} ${EXTRA.jhist.label}`,
   study: `${EXTRA.study.icon} 学習時間`,
   materials: `${EXTRA.materials.icon} 学習教材`,
   pastexams: `${EXTRA.pastexams.icon} 過去問`,
@@ -116,6 +117,20 @@ export default function HomeView({ s, corners, link, detail }: { s: HomeSummary;
           </Card>
         );
       })}
+
+      {corners.includes("jhist") && s.jhist && (
+        <Card corner="jhist" link={link}>
+          <div className="home-big">
+            節別の練習 <b>{s.jhist.cleared}</b>
+            <small>/{s.jhist.sections}セクション クリア</small>
+          </div>
+          <Bar value={s.jhist.cleared / s.jhist.sections} />
+          <div className="home-sub">
+            ◎ {s.jhist.perfect}・挑戦 {s.jhist.tried}セクション
+          </div>
+          {hiddenForOthers.includes("jhist") && <p className="home-private">🙈 ほかの人には見せていません</p>}
+        </Card>
+      )}
 
       {corners.includes("study") && s.study && (
         <Card corner="study" link={link}>

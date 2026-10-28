@@ -17,6 +17,7 @@ function asOthersSee(s: HomeSummary): HomeSummary {
     study: hide.has("study") ? null : s.study,
     materials: hide.has("materials") ? null : s.materials,
     pastexams: hide.has("pastexams") ? null : s.pastexams,
+    jhist: hide.has("jhist") ? null : s.jhist,
   };
 }
 

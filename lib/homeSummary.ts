@@ -5,6 +5,8 @@ import { viewSubject, viewTotal, type Exam } from "./pastExams";
 import { getPlayers } from "./players";
 import { SET_IDS, SETS, type Corner, type SetId } from "./sets";
 import { getStore } from "./store";
+import { JHIST_SECTION_COUNT } from "@/data/jhist/meta";
+import { practiceSummary as jhistPractice, toProfile } from "./jhist/profile";
 import { addDays, goalFor, metaOf, studiedDays, toStudyLog, weekStart, weekTotal, type StudyLog } from "./study";
 import { jstDate, practiceSummary, type Player, type User } from "./types";
 
@@ -16,6 +18,7 @@ export type HomeData = {
   studyLast: Record<number, string | null>; // 最後に学習時間を記録した日
   materials: Record<number, Material[]>;
   pastExams: Record<number, Exam[]>;
+  jhist: Record<number, unknown>; // 日本史の記録のまとめ（jhist_profile）
 };
 
 // 概要に使う記録をまとめて読む。only を渡すと、学習時間・教材・過去問はその人の分だけ読む
@@ -31,7 +34,8 @@ export async function loadHomeData(only?: number): Promise<HomeData> {
     only === undefined ? store.getMaterials() : store.getMaterialsOf(only).then((m) => ({ [only]: m })),
     only === undefined ? store.getPastExams() : store.getPastExamsOf(only).then((p) => ({ [only]: p })),
   ]);
-  return { today, players, study, studyLast, materials, pastExams };
+  const jhist = only === undefined ? await store.getJhistProfiles() : { [only]: await store.getJhistProfile(only) };
+  return { today, players, study, studyLast, materials, pastExams, jhist };
 }
 
 // showAll：見せない設定のコーナーも含める（本人・管理者）
@@ -50,6 +54,7 @@ export function buildSummary(user: User, data: HomeData, { isMe, showAll }: { is
     study: null,
     materials: null,
     pastexams: null,
+    jhist: null,
   };
 
   for (const set of SET_IDS.filter(shows)) {
@@ -112,6 +117,10 @@ export function buildSummary(user: User, data: HomeData, { isMe, showAll }: { is
       }),
     }));
     summary.pastexams = { univs: exams.length, solved, remain, exams };
+  }
+
+  if (shows("jhist")) {
+    summary.jhist = { sections: JHIST_SECTION_COUNT, ...jhistPractice(toProfile(data.jhist[number])) };
   }
 
   // 最後に記録した日（テストを受けた日・学習時間を記録した日のうち新しいもの。日本時間の日付）

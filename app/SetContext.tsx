@@ -122,6 +122,7 @@ export function SiteNav() {
           <Link href="/test?mode=review">🔁 復習</Link>
         </>
       )}
+      {corner === "jhist" && (pathname.startsWith("/c/jhist") || pathname.startsWith("/jhist")) && <Link href="/jhist/practice">📚 節別の練習</Link>}
       <Link href="/ranking">🏆 ランキング</Link>
       <Link href="/friends">👥 みんな</Link>
       <Link href="/mypage">👤 マイページ</Link>

@@ -13,6 +13,7 @@ const CORNER_LABEL: Record<Corner, string> = {
   study: "⏱️ 学習時間",
   materials: "📒 学習教材",
   pastexams: "📝 過去問",
+  jhist: "📕 日本史",
 };
 
 type SaveState = { kind: "ok" | "error"; text: string } | null;
