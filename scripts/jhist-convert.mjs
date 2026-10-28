@@ -197,7 +197,7 @@ async function main() {
   for (const g of groups) {
     const ids = g.flatMap((n) => n.ids);
     const parts = Math.max(1, Math.ceil(ids.length / SECTION_MAX));
-    const name = g.map((n) => n.name).join("・");
+    const name = [...new Set(g.map((n) => n.name))].join("・"); // 同じ名前の節は1つだけ書く
     const baseKey = g.map((n) => n.no).join("+");
     let start = 0;
     for (let p = 0; p < parts; p++) {
