@@ -2,24 +2,31 @@
 
 import Link from "next/link";
 import { JHIST_QUESTION_COUNT, JHIST_SECTION_COUNT } from "@/data/jhist/meta";
+import { JHIST_ERAS } from "@/data/jhist/meta";
+import { TEST_COUNT } from "@/lib/jhist/constants";
 import { markOf } from "@/lib/jhist/profile";
 import { useJhistMe } from "./useJhistMe";
 
-// これから追加するメニュー（日本史コーナーの構成。今日の学習が中心）
+// これから追加するメニュー
 const COMING = [
-  { icon: "🚀", title: "実力テスト", sub: "ランダム50問・ランキング用" },
   { icon: "⏳", title: "年代チャレンジ", sub: "並べ替えと時期判定を毎日5問" },
   { icon: "⚠️", title: "取り違えやすい語", sub: "混同した組を特訓" },
   { icon: "🎯", title: "入試形式トレーニング", sub: "入力記述・3文正誤・複数選択・組合せ" },
 ];
 
-// 日本史コーナーのページ（/c/jhist）
+function shortDate(date: string) {
+  const [y, m, d] = date.split("-").map(Number);
+  return `${y}年${m}月${d}日`;
+}
+
+// 日本史コーナーのページ（/c/jhist）。上から：今日の学習、時代別の定着率、段階別の語数、入試までの日数と見込み日、
+// 節別の練習、実力テスト、年代チャレンジ、取り違えやすい語、入試形式トレーニング
 export default function JhistCorner() {
   const { me, error } = useJhistMe();
   if (error) return <p className="error">データを読み込めませんでした。再読み込みしてください。</p>;
   const marks = Object.values(me?.practice ?? {}).map(markOf);
   const cleared = marks.filter(Boolean).length;
-  const perfect = marks.filter((m) => m === "◎").length;
+  const unlearned = me ? Math.max(0, me.target - me.fixed - me.learning) : 0;
 
   return (
     <>
@@ -30,15 +37,16 @@ export default function JhistCorner() {
         </p>
         <div className="stats">
           <div className="stat">
-            <div className="stat-label">定着</div>
-            <div className="stat-value">
-              {me ? me.fixed : "-"}
-              <small>/{me ? me.target.toLocaleString() : "-"}</small>
-            </div>
+            <div className="stat-label">定着率</div>
+            <div className="stat-value">{me && me.target ? `${Math.round((me.fixed / me.target) * 1000) / 10}%` : "-"}</div>
           </div>
           <div className="stat">
             <div className="stat-label">連続</div>
             <div className="stat-value">{me ? `${me.streak}日` : "-"}</div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">テスト平均</div>
+            <div className="stat-value">{me?.tests.average ?? "-"}</div>
           </div>
           <div className="stat">
             <div className="stat-label">練習クリア</div>
@@ -47,13 +55,10 @@ export default function JhistCorner() {
               <small>/{JHIST_SECTION_COUNT}</small>
             </div>
           </div>
-          <div className="stat">
-            <div className="stat-label">◎（満点）</div>
-            <div className="stat-value">{me ? perfect : "-"}</div>
-          </div>
         </div>
       </div>
 
+      {/* 1. 今日の学習 */}
       <Link href="/jhist/today" className="card jh-today-card">
         <span className="jh-today-icon">📅</span>
         <span className="jh-today-body">
@@ -73,12 +78,69 @@ export default function JhistCorner() {
         <span className="jh-today-go">{me && me.remaining > 0 ? me.remaining : "▶"}</span>
       </Link>
 
+      {me && (
+        <>
+          {/* 2. 時代別の定着率 */}
+          <div className="card">
+            <h2 style={{ marginTop: 0 }}>🕰️ 時代別の定着率</h2>
+            <div className="jh-eras">
+              {me.eras.map((e, i) => (
+                <div key={JHIST_ERAS[i]} className="jh-era">
+                  <span className="jh-era-name">{JHIST_ERAS[i]}</span>
+                  <span className="jh-era-bar" title={`定着 ${e.fixed}・学習中 ${e.learning}・全 ${e.target}語`}>
+                    <i className="fixed" style={{ width: `${e.target ? (e.fixed / e.target) * 100 : 0}%` }} />
+                    <i className="learning" style={{ width: `${e.target ? (e.learning / e.target) * 100 : 0}%` }} />
+                  </span>
+                  <span className="jh-era-rate">{e.target ? `${Math.round((e.fixed / e.target) * 100)}%` : "-"}</span>
+                </div>
+              ))}
+            </div>
+            <p className="muted jh-era-legend">
+              <i className="fixed" /> 定着（段階4以上） <i className="learning" /> 学習中（段階1〜3）　分母は目標の範囲の用語数
+            </p>
+          </div>
+
+          {/* 3. 段階別の語数 ／ 4. 入試までの日数と見込み日 */}
+          <div className="card">
+            <div className="jh-stage-counts">
+              <div>
+                <span>未学習</span>
+                <b>{unlearned.toLocaleString()}</b>
+              </div>
+              <div>
+                <span>学習中（段階1〜3）</span>
+                <b>{me.learning.toLocaleString()}</b>
+              </div>
+              <div>
+                <span>定着（段階4〜6）</span>
+                <b>{me.fixed.toLocaleString()}</b>
+              </div>
+            </div>
+            <p className="jh-exam-line">
+              🗓️ 入試（{shortDate(me.settings.examDate)}）まで <b>{Math.max(0, me.examDays)}日</b>
+              {!me.settings.set && <span className="muted">（初期値。今日の学習で設定できます）</span>}
+            </p>
+            <p className="muted jh-exam-line">
+              {me.projected
+                ? `このペースなら、全範囲が ${shortDate(me.projected)} に定着する見込み${me.projected <= me.settings.examDate ? "（入試に間に合うペース）" : "（入試に間に合わないペース。今日の学習を毎日続けよう）"}`
+                : "定着した用語が増えてくると、全範囲が定着する見込み日を表示します。"}
+            </p>
+          </div>
+        </>
+      )}
+
       <div className="menu">
+        {/* 5. 節別の練習 ／ 6. 実力テスト */}
         <Link href="/jhist/practice" className="menu-card menu-practice">
           <div className="menu-icon">📚</div>
           <div className="menu-title">節別の練習</div>
+          <div className="menu-sub">{JHIST_SECTION_COUNT}セクション・一覧で確認してから4択テスト（1問20秒）</div>
+        </Link>
+        <Link href="/jhist/test" className="menu-card menu-test">
+          <div className="menu-icon">🚀</div>
+          <div className="menu-title">実力テスト</div>
           <div className="menu-sub">
-            {JHIST_SECTION_COUNT}セクション・一覧で確認してから4択テスト（1問20秒）
+            ランダム{TEST_COUNT}問・12分30秒{me && me.tests.count > 0 ? `（${me.tests.count}回・最高 ${me.tests.best}点）` : ""}
           </div>
         </Link>
         {COMING.map((m) => (

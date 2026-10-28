@@ -6,7 +6,8 @@ import { getPlayers } from "./players";
 import { SET_IDS, SETS, type Corner, type SetId } from "./sets";
 import { getStore } from "./store";
 import { JHIST_SECTION_COUNT } from "@/data/jhist/meta";
-import { practiceSummary as jhistPractice, toProfile } from "./jhist/profile";
+import { dailyFor, eraStats, remainingOf, toTermStates } from "./jhist/plan";
+import { currentStreak, practiceSummary as jhistPractice, settingsOf, testAverage, toProfile } from "./jhist/profile";
 import { addDays, goalFor, metaOf, studiedDays, toStudyLog, weekStart, weekTotal, type StudyLog } from "./study";
 import { jstDate, practiceSummary, type Player, type User } from "./types";
 
@@ -19,6 +20,7 @@ export type HomeData = {
   materials: Record<number, Material[]>;
   pastExams: Record<number, Exam[]>;
   jhist: Record<number, unknown>; // 日本史の記録のまとめ（jhist_profile）
+  jhistTerms: Record<number, unknown>; // 日本史の用語の段階（1人分を読むときだけ。今日のノルマの残りの計算用）
 };
 
 // 概要に使う記録をまとめて読む。only を渡すと、学習時間・教材・過去問はその人の分だけ読む
@@ -35,7 +37,8 @@ export async function loadHomeData(only?: number): Promise<HomeData> {
     only === undefined ? store.getPastExams() : store.getPastExamsOf(only).then((p) => ({ [only]: p })),
   ]);
   const jhist = only === undefined ? await store.getJhistProfiles() : { [only]: await store.getJhistProfile(only) };
-  return { today, players, study, studyLast, materials, pastExams, jhist };
+  const jhistTerms = only === undefined ? {} : { [only]: await store.getJhistTerms(only) };
+  return { today, players, study, studyLast, materials, pastExams, jhist, jhistTerms };
 }
 
 // showAll：見せない設定のコーナーも含める（本人・管理者）
@@ -120,7 +123,27 @@ export function buildSummary(user: User, data: HomeData, { isMe, showAll }: { is
   }
 
   if (shows("jhist")) {
-    summary.jhist = { sections: JHIST_SECTION_COUNT, ...jhistPractice(toProfile(data.jhist[number])) };
+    const p = toProfile(data.jhist[number]);
+    const settings = settingsOf(p, today);
+    const eras = eraStats(p.summary, settings.goal);
+    // 今日のノルマの残り：用語の段階を読んだときはその場で計算、全員分の一覧では今日すでに決まったノルマから（まだなら null）
+    const remaining =
+      number in data.jhistTerms
+        ? remainingOf(dailyFor(p.daily, settings, toTermStates(data.jhistTerms[number]), today))
+        : p.daily?.date === today
+          ? remainingOf(p.daily)
+          : null;
+    summary.jhist = {
+      fixed: eras.reduce((a, e) => a + e.fixed, 0),
+      target: eras.reduce((a, e) => a + e.target, 0),
+      remaining,
+      streak: currentStreak(p, today),
+      count: p.tests.count,
+      average: testAverage(p.tests),
+      best: p.tests.best,
+      sections: JHIST_SECTION_COUNT,
+      ...jhistPractice(p),
+    };
   }
 
   // 最後に記録した日（テストを受けた日・学習時間を記録した日のうち新しいもの。日本時間の日付）

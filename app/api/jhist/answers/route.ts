@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { sessionNumber } from "@/lib/auth";
-import { isSubmittedAnswer, recordPractice, recordToday } from "@/lib/jhist/record";
+import { isSubmittedAnswer, recordPractice, recordTest, recordToday } from "@/lib/jhist/record";
 import { getStore } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-// 日本史の回答の送信。source：practice（節別の練習）／today（今日の学習。数問ずつまとめて送る）
+// 日本史の回答の送信。source：practice（節別の練習）／today（今日の学習。数問ずつまとめて送る）／test（実力テスト）
 // 採点はサーバーでやり直し、記録するのはログインしている本人の番号だけ
 export async function POST(req: Request) {
   const number = await sessionNumber(req);
@@ -18,6 +18,11 @@ export async function POST(req: Request) {
 
   if (body.source === "practice" && typeof body.section === "string") {
     const result = await recordPractice(number, body.section, attemptId, answers);
+    if ("error" in result) return NextResponse.json(result, { status: 400 });
+    return NextResponse.json(result);
+  }
+  if (body.source === "test" && typeof body.testId === "string") {
+    const result = await recordTest(number, body.testId, answers);
     if ("error" in result) return NextResponse.json(result, { status: 400 });
     return NextResponse.json(result);
   }

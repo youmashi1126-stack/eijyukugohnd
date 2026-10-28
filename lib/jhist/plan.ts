@@ -1,8 +1,8 @@
 // 日本史：今日の学習の組み立て（新出数・重要度の解放・ノルマ・出題順）。サーバーで使う
-import { FIXED_STAGE, NEW_PER_DAY_MAX, NEW_PER_DAY_MIN, REVIEW_ONLY_DAYS, UNLOCK_RATE, UNLOCK_STAGE } from "./constants";
+import { FIXED_HISTORY_DAYS, FIXED_STAGE, NEW_PER_DAY_MAX, NEW_PER_DAY_MIN, PACE_DAYS, REVIEW_ONLY_DAYS, UNLOCK_RATE, UNLOCK_STAGE } from "./constants";
 import { jhistIndex, type JTerm } from "./data";
 import { GOALS, IMPS, type Daily, type Goal, type Imp, type JhistSettings, type JhistSummary } from "./profile";
-import { dayNumber, formatOf, type Format, type TermState } from "./srs";
+import { dateOf, dayNumber, formatOf, type Format, type TermState } from "./srs";
 
 // 用語の番号 → 状態（記録のない用語は未学習＝段階0）
 export type TermStates = Map<number, TermState>;
@@ -143,4 +143,35 @@ export function summarize(states: TermStates, terms: JTerm[] = jhistIndex().term
     else if (st.s >= 1) learning[t.era][imp]++;
   }
   return { fixed, learning };
+}
+
+// 時代ごとの、目標の対象用語数と定着した数
+export function eraStats(summary: JhistSummary | null, goal: Goal, eras = 12, terms: JTerm[] = jhistIndex().terms) {
+  const imps = targetImps(goal);
+  return Array.from({ length: eras }, (_, e) => ({
+    target: terms.filter((t) => t.era === e && imps.includes(t.imp)).length,
+    fixed: imps.reduce((a, imp) => a + (summary?.fixed[e]?.[IMPS.indexOf(imp)] ?? 0), 0),
+    learning: imps.reduce((a, imp) => a + (summary?.learning[e]?.[IMPS.indexOf(imp)] ?? 0), 0),
+  }));
+}
+
+// このペースで全範囲（目標の対象用語）が定着する見込み日。直近14日（記録が短ければ最初の日から）の定着語数の増え方で見込む
+// 見込めないとき（記録が1日分しかない・増えていない）は null
+export function projectDate(history: [string, number][], fixedNow: number, target: number, today: string, paceDays = PACE_DAYS): string | null {
+  if (target <= 0) return null;
+  if (fixedNow >= target) return today;
+  const day = dayNumber(today);
+  const past = history.filter(([d]) => dayNumber(d) < day);
+  if (!past.length) return null;
+  const ref = [...past].reverse().find(([d]) => dayNumber(d) <= day - paceDays) ?? past[0];
+  const days = day - dayNumber(ref[0]);
+  const pace = (fixedNow - ref[1]) / days;
+  if (!(pace > 0)) return null;
+  return dateOf(day + Math.ceil((target - fixedNow) / pace));
+}
+
+// 日ごとの定着語数の記録を、今日の分で更新する
+export function withFixedHistory(history: [string, number][], today: string, fixed: number): [string, number][] {
+  const rest = history.filter(([d]) => d !== today);
+  return [...rest, [today, fixed] as [string, number]].slice(-FIXED_HISTORY_DAYS);
 }

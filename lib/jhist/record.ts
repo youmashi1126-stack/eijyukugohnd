@@ -1,10 +1,11 @@
 // 日本史：送られてきた回答をサーバーで採点し、記憶の段階・ノルマ・記録をまとめて保存する
 import { getStore, type JhistAnswerStat } from "../store";
 import { jstDate } from "../types";
-import { KEEP_ATTEMPTS, PRACTICE_COUNT } from "./constants";
+import { KEEP_ATTEMPTS, PRACTICE_COUNT, TEST_GRACE_SEC, TEST_HISTORY, TEST_SEC } from "./constants";
 import { jhistIndex, type JQuestion } from "./data";
-import { dailyFor, fromTermStates, summarize, toTermStates, type TermStates } from "./plan";
-import { markOf, settingsOf, toProfile, type Daily, type JhistProfile } from "./profile";
+import { dailyFor, eraStats, fromTermStates, summarize, toTermStates, withFixedHistory, type TermStates } from "./plan";
+import { markOf, settingsOf, toProfile, type Daily, type Goal, type JhistProfile } from "./profile";
+import { buildTest, scoreOf } from "./test";
 import { applyAnswer, dateOf, dayNumber, isHesitant, type Format, type Mark } from "./srs";
 
 // 回答：問題ID、かかった秒数と、形式ごとの答え
@@ -66,7 +67,9 @@ function applyAll(states: TermStates, answers: SubmittedAnswer[], today: string,
     const mark = gradeAnswer(q, a);
     const prev = states.get(q.term);
     const { state } = applyAnswer(prev, { mark, format, sec: a.sec, qid: q.id, at }, day, mode);
-    states.set(q.term, state);
+    // 練習・実力テストでは、未学習の用語は段階1に上がったとき（練習の正解）だけ記録を作る。
+    // それ以外（テストの答え・練習の不正解や迷った正解）で記録を作ると、今日の学習の復習に入って新出から外れてしまう
+    if (prev || mode === "today" || state.s > 0) states.set(q.term, state);
     const hesitant = isHesitant(format, mark, a.sec);
     results.push({ qid: q.id, term: q.term, mark, hesitant, before: prev?.s ?? 0, after: state.s, wasNew: !prev, wasDue: !!prev && prev.due <= day });
     stats.push({ qid: q.id, ok: mark === "o", wrong: mark === "o" || format !== "choice" ? undefined : (a.chosen ?? undefined) });
@@ -77,6 +80,13 @@ function applyAll(states: TermStates, answers: SubmittedAnswer[], today: string,
     return [q.id, idx.terms[q.term].id, format === "choice" ? "4" : format, mark, Math.round(a.sec * 10) / 10, detail];
   });
   return { stats, confusions, results, log: { source, entries } };
+}
+
+// 集計と、日ごとの定着語数（目標の対象用語のうち）の記録を、今の状態で作り直す
+function summaryFields(profile: JhistProfile, states: TermStates, today: string) {
+  const summary = summarize(states);
+  const fixed = eraStats(summary, settingsOf(profile, today).goal).reduce((a, e) => a + e.fixed, 0);
+  return { summary, fixedHistory: withFixedHistory(profile.fixedHistory, today, fixed) };
 }
 
 export type PracticeResult = { score: number; total: number; best: [number, number]; newBest: boolean; mark: string; duplicate: boolean };
@@ -114,7 +124,7 @@ export async function recordPractice(number: number, sectionKey: string, attempt
     ...profile,
     practice: { ...profile.practice, [sectionKey]: best },
     attempts: attemptId ? [...profile.attempts, attemptId].slice(-KEEP_ATTEMPTS) : profile.attempts,
-    summary: summarize(states),
+    ...summaryFields(profile, states, jstDate()),
   };
   await store.saveJhist(number, { profile: next, terms: fromTermStates(states), log: applied.log, stats: applied.stats, confusions: applied.confusions });
   return { score, total, best, newBest, mark: markOf(best), duplicate: false };
@@ -174,7 +184,7 @@ export async function recordToday(number: number, attemptId: string, answers: Su
     daily: nextDaily,
     streak,
     attempts: attemptId ? [...profile.attempts, attemptId].slice(-KEEP_ATTEMPTS) : profile.attempts,
-    summary: summarize(states),
+    ...summaryFields(profile, states, jstDate()),
   };
   await store.saveJhist(number, { profile: next, terms: fromTermStates(states), log: applied.log, stats: applied.stats, confusions: applied.confusions });
   return {
@@ -183,5 +193,63 @@ export async function recordToday(number: number, attemptId: string, answers: Su
     streak: streak.count,
     achievedNow,
     duplicate: false,
+  };
+}
+
+// 実力テストを始める：問題を選び、出題した問題を覚えておく（送られてきた答えと照らし合わせるため）
+export async function startTest(number: number, era: number | null, level: Goal) {
+  const store = getStore();
+  const profile = toProfile(await store.getJhistProfile(number));
+  const qids = buildTest(era, level);
+  const pendingTest = { id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`, qids, startedAt: new Date().toISOString(), era, level };
+  await store.saveJhist(number, { profile: { ...profile, pendingTest } });
+  return { id: pendingTest.id, qids, sec: TEST_SEC };
+}
+
+export type TestResult = { score: number; ok: number; n: number; correct: Record<string, boolean>; average: number | null; best: number | null; ranked: boolean };
+
+// 実力テストの結果：100点満点に換算。正解しても段階は上げず、不正解なら下げる。ランキング用の集計は全範囲のテストだけ
+export async function recordTest(number: number, testId: string, answers: SubmittedAnswer[]): Promise<TestResult | { error: string }> {
+  const store = getStore();
+  const [rawProfile, rawTerms] = await Promise.all([store.getJhistProfile(number), store.getJhistTerms(number)]);
+  const profile = toProfile(rawProfile);
+  const pending = profile.pendingTest;
+  if (!pending || pending.id !== testId) return { error: "このテストはもう記録されたか、始めた記録がありません" };
+  const asked = new Set(pending.qids);
+  const ids = answers.map((a) => a.qid);
+  if (answers.length !== pending.qids.length || new Set(ids).size !== ids.length || !ids.every((id) => asked.has(id)) || answers.some((a) => (a.format ?? "choice") !== "choice")) {
+    return { error: "解答データが正しくありません" };
+  }
+  if (Date.now() - Date.parse(pending.startedAt) > (TEST_SEC + TEST_GRACE_SEC) * 1000) {
+    await store.saveJhist(number, { profile: { ...profile, pendingTest: null } });
+    return { error: "制限時間を大きく過ぎたため、記録できませんでした" };
+  }
+  const today = jstDate();
+  const states = toTermStates(rawTerms);
+  const applied = applyAll(states, answers, today, "check", "test");
+  const ok = applied.results.filter((r) => r.mark === "o").length;
+  const n = answers.length;
+  const score = scoreOf(ok, n);
+  const at = new Date().toISOString();
+  const ranked = pending.era === null;
+  const tests = ranked
+    ? { count: profile.tests.count + 1, total: profile.tests.total + score, best: Math.max(profile.tests.best ?? 0, score), lastAt: at }
+    : profile.tests;
+  const next: JhistProfile = {
+    ...profile,
+    pendingTest: null,
+    tests,
+    testHistory: [...profile.testHistory, { at, score, ok, n, era: pending.era, level: pending.level }].slice(-TEST_HISTORY),
+    ...summaryFields(profile, states, today),
+  };
+  await store.saveJhist(number, { profile: next, terms: fromTermStates(states), log: applied.log, stats: applied.stats, confusions: applied.confusions });
+  return {
+    score,
+    ok,
+    n,
+    correct: Object.fromEntries(applied.results.map((r) => [r.qid, r.mark === "o"])),
+    average: tests.count ? Math.round((tests.total / tests.count) * 10) / 10 : null,
+    best: tests.best,
+    ranked,
   };
 }

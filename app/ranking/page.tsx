@@ -16,6 +16,7 @@ import {
 } from "@/lib/types";
 import { useSet } from "../SetContext";
 import StudyRanking from "../study/StudyRanking";
+import JhistRanking from "../jhist/JhistRanking";
 
 type DayRow = { number: number; nickname: string; best: number; count: number };
 
@@ -239,7 +240,7 @@ function rankLabel(rank: number | null) {
 }
 
 export default function RankingPage() {
-  const { set, corner, visible, ready, changeSet, openStudy } = useSet();
+  const { set, corner, visible, ready, changeSet, openStudy, openCorner } = useSet();
   const [players, setPlayers] = useState<Player[] | null>(null);
   const [error, setError] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("average");
@@ -298,6 +299,11 @@ export default function RankingPage() {
           {SETS[s].icon} {SETS[s].label}
         </button>
       ))}
+      {visible.includes("jhist") && (
+        <button className={corner === "jhist" ? "active" : ""} onClick={() => openCorner("jhist")}>
+          📕 日本史
+        </button>
+      )}
       {visible.includes("study") && (
         <button className={corner === "study" ? "active" : ""} onClick={openStudy}>
           ⏱️ 学習時間
@@ -312,6 +318,14 @@ export default function RankingPage() {
       <>
         {corners}
         <StudyRanking key={studyTab} initialTab={studyTab} />
+      </>
+    );
+  }
+  if (corner === "jhist") {
+    return (
+      <>
+        {corners}
+        <JhistRanking />
       </>
     );
   }

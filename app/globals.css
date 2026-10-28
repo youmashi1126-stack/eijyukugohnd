@@ -3924,3 +3924,94 @@ a.home-card:hover {
 .jh-settings-row .input {
   max-width: 220px;
 }
+
+/* 日本史：時代別の定着率・段階別の語数 */
+.jh-eras {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jh-era {
+  display: grid;
+  grid-template-columns: 5.5em 1fr 3em;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.jh-era-name {
+  font-weight: 700;
+}
+
+.jh-era-bar {
+  display: flex;
+  height: 12px;
+  border-radius: 999px;
+  background: #f4f6fa;
+  border: 1px solid #e7ebf2;
+  overflow: hidden;
+}
+
+.jh-era-bar i,
+.jh-era-legend i {
+  display: inline-block;
+  height: 100%;
+}
+
+.jh-era-bar .fixed,
+.jh-era-legend .fixed {
+  background: #9f1239;
+}
+
+.jh-era-bar .learning,
+.jh-era-legend .learning {
+  background: #f9a8b8;
+}
+
+.jh-era-rate {
+  text-align: right;
+  font-weight: 800;
+}
+
+.jh-era-legend {
+  margin: 8px 0 0;
+  font-size: 11px;
+}
+
+.jh-era-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  vertical-align: -1px;
+}
+
+.jh-stage-counts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.jh-stage-counts div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 4px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+}
+
+.jh-stage-counts span {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: center;
+}
+
+.jh-stage-counts b {
+  font-size: 20px;
+}
+
+.jh-exam-line {
+  margin: 10px 0 0;
+}
