@@ -2,7 +2,8 @@
 import { JHIST_QUESTIONS, JHIST_SECTIONS, JHIST_TERMS } from "@/data/jhist";
 
 export type Importance = "S" | "A" | "B";
-export type JQuestion = { id: string; term: number; era: number; imp: Importance; section: number; answer: string; alts: string[] };
+// reading：読み（かな）を問う問題（入力記述でカタカナとひらがなを区別する）
+export type JQuestion = { id: string; term: number; era: number; imp: Importance; section: number; answer: string; alts: string[]; reading: boolean };
 // questions：その用語の問題（問題ID順）、order：新出で出す順（最初に出てくるセクション → 問題ID の順）
 export type JTerm = { id: string; imp: Importance; era: number; questions: string[]; section: number; order: number };
 export type JSection = { no: number; key: string; name: string; era: number; ids: string[] };
@@ -22,7 +23,7 @@ let cache: Index | null = null;
 export function jhistIndex(): Index {
   if (cache) return cache;
   const questions = JHIST_QUESTIONS.split("\n").map((line) => {
-    const [id, term, era, imp, section, answer, alts] = line.split("|");
+    const [id, term, era, imp, section, answer, alts, reading] = line.split("|");
     return {
       id,
       term: Number(term),
@@ -31,6 +32,7 @@ export function jhistIndex(): Index {
       section: Number(section),
       answer,
       alts: alts ? alts.split("、").map((s) => s.trim()).filter(Boolean) : [],
+      reading: reading === "r",
     };
   });
   const terms: JTerm[] = JHIST_TERMS.split("\n").map((line) => {

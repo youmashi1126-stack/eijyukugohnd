@@ -68,3 +68,12 @@ export const CONFUSION_TOP = 10;
 // 取り違えの特訓で、1つの用語から出す問題の数（多いときはこの数まで）
 export const CONFUSION_QUESTIONS_PER_TERM = 3;
 export const REPORT_MAX = 100;
+
+// ---------- 入試形式トレーニング（仕様9） ----------
+// 1回10問。成績はノルマ・連続日数・ランキングに入れない。段階への影響は実力テストと同じ
+export const EXAM_COUNT = 10;
+// 3文正誤は3文、複数選択は5文（どちらも同じ時代から）
+export const THREE_TF_SIZE = 3;
+export const MULTI_SIZE = 5;
+// 複数選択（基本）の正文の数
+export const MULTI_BASIC_CORRECT = 2;

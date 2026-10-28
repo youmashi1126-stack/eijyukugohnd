@@ -3566,15 +3566,6 @@ a.home-card:hover {
   border-left-color: #9f1239;
 }
 
-.jh-coming {
-  cursor: default;
-  opacity: 0.75;
-}
-
-.jh-coming:hover {
-  transform: none;
-}
-
 /* 節別の練習：セクション一覧 */
 .jh-section-list {
   display: flex;
@@ -4171,4 +4162,132 @@ a.home-card:hover {
 
 .jh-qstat-wrong {
   font-size: 12px;
+}
+
+/* 日本史：入力して採点 */
+.jh-input-row {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.jh-input {
+  flex: 1;
+  font-size: 18px;
+}
+
+.jh-typed {
+  margin: 4px 0 0;
+  font-size: 14px;
+}
+
+.jh-typed-text {
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.jh-typo {
+  background: #fde68a;
+  border-bottom: 3px solid #9a3412;
+  color: #9a3412;
+}
+
+.jh-typo-note {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #9a3412;
+}
+
+/* 日本史：入試形式トレーニング */
+.jh-exam-kinds {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+@media (max-width: 520px) {
+  .jh-exam-kinds {
+    grid-template-columns: 1fr;
+  }
+}
+
+.jh-exam-kind {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px;
+  border: 2px solid var(--border);
+  border-radius: 16px;
+  background: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.jh-exam-kind:hover {
+  border-color: var(--primary);
+}
+
+.jh-exam-icon {
+  font-size: 26px;
+}
+
+.jh-exam-kind small {
+  color: var(--muted);
+}
+
+.jh-sentences {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jh-sentence {
+  padding: 10px 12px;
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.jh-sentence.ok {
+  border-color: var(--ok);
+}
+
+.jh-sentence.ng {
+  border-color: #9a3412;
+}
+
+.jh-sentence-text {
+  font-weight: 700;
+  line-height: 1.7;
+}
+
+.jh-sentence-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.jh-sentence-buttons .btn,
+.jh-pick {
+  padding: 6px 18px;
+  margin-top: 6px;
+}
+
+.jh-sentence-buttons .btn.on,
+.jh-pick.on {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  font-weight: 800;
+}
+
+.jh-sentence-answer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 6px;
+  font-size: 13px;
 }
