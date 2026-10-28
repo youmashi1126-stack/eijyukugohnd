@@ -7,7 +7,39 @@ export const MOODS: { id: Mood; icon: string; label: string }[] = [
   { id: "bad", icon: "😣", label: "うまくいかなかった" },
 ];
 
-export type StudyDay = { minutes: number; mood: Mood | null };
+// その日の記録：学習時間・気分（今日まで）と、その日の目標時間・予定（先の日も立てられる）
+export type StudyDay = { minutes: number; mood: Mood | null; goal?: number; plan?: PlanItem[] };
+
+// 予定に入れられるもの：登録している学習教材・過去問と「塾・予備校」
+export type PlanKind = "material" | "pastexam" | "juku";
+export type PlanItem = { kind: PlanKind; label: string };
+export const PLAN_KINDS: { id: PlanKind; icon: string; label: string }[] = [
+  { id: "material", icon: "📒", label: "学習教材" },
+  { id: "pastexam", icon: "📝", label: "過去問" },
+  { id: "juku", icon: "🏫", label: "塾・予備校" },
+];
+export const JUKU_LABEL = "塾・予備校";
+export const PLAN_MAX = 10; // 1日に入れられる予定の数
+const PLAN_LABEL_MAX = 70;
+// 予定と目標は、今日から約2か月先まで立てられる
+export const PLAN_AHEAD_DAYS = 62;
+
+// 送られてきた・保存されている予定を正しい形にそろえる（同じものは1つにまとめる）
+export function toPlan(v: unknown): PlanItem[] {
+  const out: PlanItem[] = [];
+  for (const o of Array.isArray(v) ? v : []) {
+    const kind = (o as PlanItem)?.kind;
+    if (!PLAN_KINDS.some((k) => k.id === kind)) continue;
+    const label = kind === "juku" ? JUKU_LABEL : [...String((o as PlanItem)?.label ?? "").replace(/[\r\n\t]+/g, " ").trim()].slice(0, PLAN_LABEL_MAX).join("");
+    if (!label || out.some((x) => x.kind === kind && x.label === label)) continue;
+    out.push({ kind, label });
+  }
+  return out.slice(0, PLAN_MAX);
+}
+
+function isEmptyDay(d: StudyDay) {
+  return d.minutes === 0 && d.mood === null && !d.goal && !d.plan?.length;
+}
 
 // その週の定量ゴール（数で測れる目標）と定性ゴール（取り組み方などの目標）。どちらも30字まで
 // quantEval / qualEval：週の終わり（日曜日）からつけられる振り返り（◎〇△×）
@@ -124,7 +156,12 @@ export function toStudyLog(v: unknown): StudyLog {
     if (!isDateString(date) || !day || typeof day !== "object") continue;
     const minutes = Number((day as StudyDay).minutes);
     if (!Number.isFinite(minutes)) continue;
-    log.days[date] = { minutes: clamp(minutes, MAX_DAY_MINUTES), mood: isMood((day as StudyDay).mood) ? (day as StudyDay).mood : null };
+    const d: StudyDay = { minutes: clamp(minutes, MAX_DAY_MINUTES), mood: isMood((day as StudyDay).mood) ? (day as StudyDay).mood : null };
+    const goal = clamp(Number((day as StudyDay).goal) || 0, MAX_DAY_MINUTES);
+    if (goal) d.goal = goal;
+    const plan = toPlan((day as StudyDay).plan);
+    if (plan.length) d.plan = plan;
+    log.days[date] = d;
   }
   for (const [week, goal] of Object.entries(o.goals ?? {})) {
     const g = Number(goal);
@@ -148,9 +185,9 @@ function clamp(n: number, max: number) {
   return Math.max(0, Math.min(max, Math.round(n)));
 }
 
-// 1回の保存内容：その日の記録（minutes / mood は送った項目だけ変える）、週の目標時間、または週の定量・定性ゴール
+// 1回の保存内容：その日の記録（minutes / mood / goal / plan は送った項目だけ変える）、週の目標時間、または週の定量・定性ゴール
 export type StudyPatch =
-  | { type: "day"; date: string; minutes?: number; mood?: Mood | null }
+  | { type: "day"; date: string; minutes?: number; mood?: Mood | null; goal?: number | null; plan?: PlanItem[] }
   | { type: "goal"; week: string; minutes: number | null }
   | { type: "notes"; week: string; quant: string; qual: string }
   | { type: "eval"; week: string; target: "quant" | "qual"; value: Eval | null };
@@ -163,7 +200,11 @@ export function applyStudyPatch(log: StudyLog, patch: StudyPatch): StudyLog {
       minutes: patch.minutes === undefined ? prev.minutes : clamp(patch.minutes, MAX_DAY_MINUTES),
       mood: patch.mood === undefined ? prev.mood : patch.mood,
     };
-    if (day.minutes === 0 && day.mood === null) delete next.days[patch.date];
+    const goal = patch.goal === undefined ? prev.goal : patch.goal === null ? 0 : clamp(patch.goal, MAX_DAY_MINUTES);
+    if (goal) day.goal = goal;
+    const plan = patch.plan === undefined ? (prev.plan ?? []) : toPlan(patch.plan);
+    if (plan.length) day.plan = plan;
+    if (isEmptyDay(day)) delete next.days[patch.date];
     else next.days[patch.date] = day;
   } else if (patch.type === "notes" || patch.type === "eval") {
     // ゴールの文を書き直しても振り返りは残し、振り返りをつけても文は変えない

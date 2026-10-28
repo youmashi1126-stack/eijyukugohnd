@@ -20,11 +20,18 @@ import {
   charCount,
   EVALS,
   NOTE_MAX,
+  JUKU_LABEL,
+  PLAN_AHEAD_DAYS,
+  PLAN_KINDS,
+  PLAN_MAX,
   type Eval,
   type Mood,
+  type PlanItem,
   type StudyLog,
   type WeekNote,
 } from "@/lib/study";
+import { isUsed, type Material } from "@/lib/materials";
+import type { Exam } from "@/lib/pastExams";
 
 type Me = { number: number; nickname: string };
 type SaveState = "saving" | "saved" | "error";
@@ -32,6 +39,26 @@ type SaveState = "saving" | "saved" | "error";
 const HOURS = Array.from({ length: MAX_DAY_MINUTES / 60 + 1 }, (_, i) => i);
 const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5);
 const GOAL_MINUTES = [0, 15, 30, 45];
+// その日の目標時間の選択肢：8時間までは15分ごと、そのあとは1時間ごと
+const DAY_GOALS = [
+  ...Array.from({ length: 32 }, (_, i) => (i + 1) * 15),
+  ...Array.from({ length: MAX_DAY_MINUTES / 60 - 8 }, (_, i) => (i + 9) * 60),
+];
+
+// 予定に選べるもの：登録している学習教材（書名）・過去問（大学と科目）・塾・予備校
+function planOptions(materials: Material[], exams: Exam[]): PlanItem[] {
+  const out: PlanItem[] = materials.filter(isUsed).map((m) => ({ kind: "material", label: m.title }));
+  for (const e of exams) {
+    const subjects = e.subjects.filter((x) => x.name);
+    if (!e.univ && !subjects.length) continue;
+    if (!subjects.length) out.push({ kind: "pastexam", label: e.univ });
+    for (const x of subjects) out.push({ kind: "pastexam", label: `${e.univ} ${x.name}`.trim() });
+  }
+  out.push({ kind: "juku", label: JUKU_LABEL });
+  return out.filter((o, i) => out.findIndex((x) => x.kind === o.kind && x.label === o.label) === i);
+}
+
+const planKey = (p: PlanItem) => `${p.kind}:${p.label}`;
 // 「これまでの週」に並べる週の数
 const PAST_WEEKS = 8;
 
@@ -49,6 +76,7 @@ export default function StudyRecord() {
   const [week, setWeek] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState<Record<string, SaveState>>({});
+  const [options, setOptions] = useState<PlanItem[]>(planOptions([], []));
 
   useEffect(() => {
     fetch("/api/study?mine=1", { cache: "no-store" })
@@ -62,6 +90,13 @@ export default function StudyRecord() {
         setWeek(weekStart(d.today));
       })
       .catch(() => setError("データを読み込めませんでした。再読み込みしてください。"));
+    // 予定に選べる教材・過去問（読めなくても記録はできる）
+    Promise.all([
+      fetch("/api/materials", { cache: "no-store" }).then((r) => (r.ok ? r.json() : { items: [] })),
+      fetch("/api/pastexams", { cache: "no-store" }).then((r) => (r.ok ? r.json() : { items: [] })),
+    ])
+      .then(([m, e]) => setOptions(planOptions(m.items ?? [], e.items ?? [])))
+      .catch(() => {});
   }, []);
 
   if (error) return <p className="error">{error}</p>;
@@ -97,9 +132,9 @@ export default function StudyRecord() {
     }
   }
 
-  function saveDay(date: string, change: { minutes?: number; mood?: Mood | null }) {
+  function saveDay(date: string, change: { minutes?: number; mood?: Mood | null; goal?: number | null; plan?: PlanItem[] }) {
     const prev = log.days[date] ?? { minutes: 0, mood: null };
-    const day = { ...prev, ...change };
+    const day = { ...prev, ...change, goal: change.goal === undefined ? prev.goal : (change.goal ?? undefined) };
     const days = { ...log.days, [date]: day };
     save(date, { type: "day", date, ...change }, { ...log, days });
   }
@@ -128,7 +163,10 @@ export default function StudyRecord() {
   const goal = goalFor(log, week);
   const rate = goal ? Math.round((total / goal) * 100) : null;
   const dates = weekDates(week);
-  const maxDay = Math.max(60, ...dates.map((d) => log.days[d]?.minutes ?? 0));
+  // 目標の点線と時間の文字が重ならないよう、いちばん高いところに少し余白を残す
+  const maxDay = Math.max(60, ...dates.map((d) => Math.max(log.days[d]?.minutes ?? 0, log.days[d]?.goal ?? 0))) * 1.15;
+  const lastWeek = weekStart(addDays(today, PLAN_AHEAD_DAYS));
+  const dayGoals = dates.reduce((a, d) => a + (log.days[d]?.goal ?? 0), 0);
   const pastWeeks = Array.from({ length: PAST_WEEKS }, (_, i) => addDays(thisWeek, -7 * i));
 
   return (
@@ -168,7 +206,7 @@ export default function StudyRecord() {
             {week === thisWeek && <span className="week-now">今週</span>}
             {weekLabel(week)}
           </div>
-          <button className="btn" disabled={week >= thisWeek} onClick={() => setWeek(addDays(week, 7))} aria-label="次の週">
+          <button className="btn" disabled={week >= lastWeek} onClick={() => setWeek(addDays(week, 7))} aria-label="次の週">
             次の週 ›
           </button>
         </div>
@@ -191,24 +229,40 @@ export default function StudyRecord() {
               ? `🎉 目標達成！（${formatMinutes(total)} / ${formatMinutes(goal)}）`
               : `目標まであと ${formatMinutes(goal - total)}`
             : "目標を設定すると、達成率が表示されます。"}
+          {dayGoals > 0 && (
+            <>
+              <br />
+              日ごとの目標の合計 {formatMinutes(dayGoals)}
+              {goal ? (dayGoals >= goal ? "（週の目標に届いています）" : `（週の目標まであと ${formatMinutes(goal - dayGoals)}）`) : ""}
+            </>
+          )}
         </p>
 
         <div className="study-chart">
           {dates.map((d) => {
             const m = log.days[d]?.minutes ?? 0;
+            const g = log.days[d]?.goal ?? 0;
             return (
               <div key={d} className={`study-chart-bar ${d === today ? "today" : ""}`}>
                 <span>{m > 0 ? formatMinutes(m) : ""}</span>
-                <div style={{ height: `${(m / maxDay) * 100}%` }} />
+                <div className="study-chart-track">
+                  <div className="study-chart-fill" style={{ height: `${(m / maxDay) * 100}%` }} />
+                  {/* その日の目標時間の高さに点線 */}
+                  {g > 0 && <i className="study-chart-goal" style={{ bottom: `${(g / maxDay) * 100}%` }} title={`目標 ${formatMinutes(g)}`} />}
+                </div>
                 <small>{dayLabel(d).replace(/^\d+\/\d+/, "")}</small>
               </div>
             );
           })}
         </div>
+        {dates.some((d) => log.days[d]?.goal) && <p className="muted chart-legend">点線：その日の目標時間</p>}
       </div>
 
       <div className="card">
-        <h2>📝 毎日の記録</h2>
+        <h2>📝 毎日の記録と予定</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          その日に学習するもの（予定）と目標時間は、先の日にも立てられます。学習時間と振り返りは当日から入力できます。
+        </p>
         <div className="day-list">
           {dates.map((d) => {
             const day = log.days[d];
@@ -226,9 +280,18 @@ export default function StudyRecord() {
                     {state === "saving" ? "保存中…" : state === "saved" ? "✓ 保存しました" : state === "error" ? "⚠️ 保存できませんでした" : ""}
                   </span>
                 </div>
+                <DayPlan
+                  day={d}
+                  goal={day?.goal ?? null}
+                  minutes={future ? null : minutes}
+                  plan={day?.plan ?? []}
+                  options={options}
+                  onGoal={(goal) => saveDay(d, { goal })}
+                  onPlan={(plan) => saveDay(d, { plan })}
+                />
                 {future ? (
-                  <p className="muted" style={{ margin: 0 }}>
-                    まだ先の日です
+                  <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+                    学習時間と振り返りは当日から入力できます
                   </p>
                 ) : (
                   <>
@@ -327,6 +390,85 @@ export default function StudyRecord() {
         </Link>
       </p>
     </>
+  );
+}
+
+// その日の目標時間と予定（学習するもの）。先の日も過去の日も立て直せる
+function DayPlan({
+  day,
+  goal,
+  minutes,
+  plan,
+  options,
+  onGoal,
+  onPlan,
+}: {
+  day: string;
+  goal: number | null;
+  minutes: number | null; // 今日までの日は学習時間（目標との比較用）
+  plan: PlanItem[];
+  options: PlanItem[];
+  onGoal: (goal: number | null) => void;
+  onPlan: (plan: PlanItem[]) => void;
+}) {
+  const chosen = new Set(plan.map(planKey));
+  const left = options.filter((o) => !chosen.has(planKey(o)));
+  return (
+    <div className="day-plan">
+      <div className="day-goal">
+        <span className="day-plan-label">🎯 目標</span>
+        <select aria-label={`${dayLabel(day)}の目標時間`} value={goal ?? 0} onChange={(e) => onGoal(Number(e.target.value) || null)}>
+          <option value={0}>なし</option>
+          {goal && !DAY_GOALS.includes(goal) && <option value={goal}>{formatMinutes(goal)}</option>}
+          {DAY_GOALS.map((m) => (
+            <option key={m} value={m}>
+              {formatMinutes(m)}
+            </option>
+          ))}
+        </select>
+        {goal && minutes !== null && (
+          <span className={`day-goal-rate ${minutes >= goal ? "done" : ""}`}>
+            {minutes >= goal ? "🎉 達成" : `あと ${formatMinutes(goal - minutes)}`}
+          </span>
+        )}
+      </div>
+      <div className="day-plan-items">
+        <span className="day-plan-label">📋 予定</span>
+        {plan.map((p) => (
+          <span key={planKey(p)} className={`plan-chip ${p.kind}`}>
+            {PLAN_KINDS.find((k) => k.id === p.kind)?.icon} {p.label}
+            <button aria-label={`${p.label}を予定から外す`} onClick={() => onPlan(plan.filter((x) => planKey(x) !== planKey(p)))}>
+              ×
+            </button>
+          </span>
+        ))}
+        {plan.length < PLAN_MAX && left.length > 0 && (
+          <select
+            className="plan-add"
+            aria-label={`${dayLabel(day)}の予定を追加`}
+            value=""
+            onChange={(e) => {
+              const item = left.find((o) => planKey(o) === e.target.value);
+              if (item) onPlan([...plan, item]);
+            }}
+          >
+            <option value="">＋ 追加</option>
+            {PLAN_KINDS.map((k) => {
+              const list = left.filter((o) => o.kind === k.id);
+              return list.length ? (
+                <optgroup key={k.id} label={`${k.icon} ${k.label}`}>
+                  {list.map((o) => (
+                    <option key={planKey(o)} value={planKey(o)}>
+                      {o.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null;
+            })}
+          </select>
+        )}
+      </div>
+    </div>
   );
 }
 

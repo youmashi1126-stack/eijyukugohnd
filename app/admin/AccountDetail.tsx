@@ -269,7 +269,13 @@ function WeekBars({ log, week, today, max }: { log: StudyLog; week: string; toda
           <div
             key={d}
             className={`week-bar ${future ? "future" : ""}`}
-            title={`${dayLabel(d)} ${formatMinutes(minutes)}${mood ? ` ${mood.icon}${mood.label}` : ""}`}
+            title={[
+              `${dayLabel(d)} ${formatMinutes(minutes)}${mood ? ` ${mood.icon}${mood.label}` : ""}`,
+              day?.goal ? `目標 ${formatMinutes(day.goal)}` : "",
+              day?.plan?.length ? `予定：${day.plan.map((x) => x.label).join("、")}` : "",
+            ]
+              .filter(Boolean)
+              .join("\n")}
           >
             <div className="week-bar-track">
               <div

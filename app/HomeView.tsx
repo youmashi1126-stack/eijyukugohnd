@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { HomeSummary, MaterialsSummary, PastSummary } from "@/lib/home";
 import { percent } from "@/lib/pastExams";
 import { EXTRA, SET_IDS, SETS, type Corner } from "@/lib/sets";
-import { dayLabel, formatMinutes } from "@/lib/study";
+import { dayLabel, formatMinutes, PLAN_KINDS } from "@/lib/study";
 
 const LABEL: Record<Corner, string> = {
   word: `${SETS.word.icon} ${SETS.word.label}`,
@@ -124,6 +124,28 @@ export default function HomeView({ s, corners, link, detail }: { s: HomeSummary;
             <small>{s.study.goal ? ` / 目標 ${formatMinutes(s.study.goal)}` : "（目標なし）"}</small>
           </div>
           <Bar value={s.study.goal ? s.study.weekTotal / s.study.goal : null} />
+          {(s.study.todayGoal || s.study.todayPlan?.length > 0) && (
+            <div className="home-today-plan">
+              <div className="home-today-head">
+                📋 今日の予定
+                {s.study.todayGoal ? (
+                  <span>
+                    目標 <b>{formatMinutes(s.study.todayGoal)}</b>
+                    {s.study.today >= s.study.todayGoal ? " 🎉達成" : `（あと${formatMinutes(s.study.todayGoal - s.study.today)}）`}
+                  </span>
+                ) : null}
+              </div>
+              {s.study.todayPlan?.length > 0 && (
+                <div className="plan-chips">
+                  {s.study.todayPlan.map((p) => (
+                    <span key={`${p.kind}:${p.label}`} className={`plan-chip ${p.kind}`}>
+                      {PLAN_KINDS.find((k) => k.id === p.kind)?.icon} {p.label}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <div className="home-sub">
             今日 {formatMinutes(s.study.today)}・今週 {s.study.days}日記録
             {s.study.goal ? `・達成率 ${Math.round((s.study.weekTotal / s.study.goal) * 100)}%` : ""}

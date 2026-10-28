@@ -2014,13 +2014,24 @@ table.ranking {
 }
 
 .study-chart-bar span {
+  min-height: 14px;
   font-size: 10px;
   font-weight: 800;
   white-space: nowrap;
   color: var(--muted);
 }
 
-.study-chart-bar div {
+.study-chart-track {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  min-height: 0;
+}
+
+.study-chart-bar .study-chart-fill {
   width: 70%;
   min-height: 3px;
   border-radius: 8px 8px 0 0;
@@ -2053,8 +2064,10 @@ table.ranking {
   box-shadow: 0 0 0 2px var(--primary);
 }
 
+/* 先の日：予定と目標だけ立てられる */
 .day-row.future {
-  opacity: 0.55;
+  background: #f4f6fa;
+  border: 1px dashed #c9d0de;
 }
 
 .day-head {
@@ -3402,4 +3415,115 @@ a.home-card:hover {
 .exam-empty {
   margin: 0;
   font-size: 12px;
+}
+
+/* その日の目標時間と予定 */
+.study-chart-goal {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  border-top: 2px dashed #1e2761;
+}
+
+.day-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 8px;
+}
+
+.day-goal,
+.day-plan-items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.day-plan-label {
+  font-weight: 800;
+  font-size: 12px;
+  min-width: 3.6em;
+}
+
+.day-goal select,
+.plan-add {
+  padding: 4px 6px;
+  border-radius: 8px;
+  border: 1px solid #c9d0de;
+  background: #fff;
+  font-size: 13px;
+  max-width: 100%;
+}
+
+.day-goal-rate {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.day-goal-rate.done {
+  color: var(--ok);
+}
+
+.plan-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.plan-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #fff;
+  border: 1px solid #c9d0de;
+  color: #1e2761;
+  max-width: 100%;
+}
+
+.plan-chip.juku {
+  background: #e7ebf2;
+}
+
+.plan-chip button {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  font-size: 14px;
+  line-height: 1;
+  color: #55617d;
+  cursor: pointer;
+}
+
+.home-today-plan {
+  margin: 8px 0 4px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: #f4f6fa;
+}
+
+.home-today-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 10px;
+  font-size: 13px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.home-today-head span {
+  font-weight: 700;
+}
+
+.chart-legend {
+  margin: 4px 0 0;
+  font-size: 11px;
+  text-align: right;
 }
