@@ -2201,15 +2201,19 @@ table.ranking {
   justify-content: center;
 }
 
+/* スマホ：コーナーが多いので1列に詰めず、3つずつ並べる（全部見えて、押しやすい大きさ） */
 @media (max-width: 520px) {
   .sort-tabs.corner-tabs {
-    flex-wrap: nowrap;
-    gap: 4px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
   }
   .sort-tabs.corner-tabs button {
-    padding: 5px 8px;
+    min-height: 40px;
+    padding: 6px 4px;
     font-size: 12px;
     white-space: nowrap;
+    border-radius: 12px;
   }
 }
 
