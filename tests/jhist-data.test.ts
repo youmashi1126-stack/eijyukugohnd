@@ -16,12 +16,12 @@ type Raw = {
 const raw: Raw = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "public", JHIST_DATA_URL), "utf8"));
 
 describe("日本史の問題データ（画面用）", () => {
-  it("3,051問・2,197語をすべて読み込める", () => {
-    expect(raw.q.length).toBe(3051);
-    expect(JHIST_QUESTION_COUNT).toBe(3051);
-    expect(raw.terms.length).toBe(2197);
-    expect(JHIST_TERM_COUNT).toBe(2197);
-    expect(new Set(raw.q.map((q) => q[0])).size).toBe(3051);
+  it("3,139問・2,281語をすべて読み込める", () => {
+    expect(raw.q.length).toBe(3139);
+    expect(JHIST_QUESTION_COUNT).toBe(3139);
+    expect(raw.terms.length).toBe(2281);
+    expect(JHIST_TERM_COUNT).toBe(2281);
+    expect(new Set(raw.q.map((q) => q[0])).size).toBe(3139);
   });
 
   it("全問で空欄がちょうど1つ", () => {
@@ -45,7 +45,7 @@ describe("日本史の問題データ（画面用）", () => {
   it("年代整序の西暦が時代の範囲に収まっている（加賀の一向一揆は1488年）", () => {
     const kaga = raw.chrono.find((c) => c[1] === "加賀の一向一揆");
     expect(kaga?.[0]).toBe(1488);
-    expect(raw.chrono.length).toBe(290);
+    expect(raw.chrono.length).toBe(304);
   });
 });
 
@@ -57,8 +57,8 @@ describe("節別の練習のセクション", () => {
       expect(s.ids.length).toBeLessThanOrEqual(30);
     }
     const all = raw.sections.flatMap((s) => s.ids);
-    expect(all.length).toBe(3051);
-    expect(new Set(all).size).toBe(3051);
+    expect(all.length).toBe(3139);
+    expect(new Set(all).size).toBe(3139);
     expect(new Set(raw.sections.map((s) => s.key)).size).toBe(raw.sections.length);
   });
 });
@@ -66,8 +66,8 @@ describe("節別の練習のセクション", () => {
 describe("サーバー用の索引", () => {
   const idx = jhistIndex();
   it("画面用のデータと、問題・正解・用語・セクションが一致する", () => {
-    expect(idx.questions.length).toBe(3051);
-    expect(idx.terms.length).toBe(2197);
+    expect(idx.questions.length).toBe(3139);
+    expect(idx.terms.length).toBe(2281);
     expect(idx.sections.length).toBe(JHIST_SECTION_COUNT);
     for (const q of raw.q) {
       const s = idx.byId.get(q[0])!;

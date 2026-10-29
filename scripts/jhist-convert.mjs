@@ -63,10 +63,12 @@ async function readWorkbook(file) {
   const read = (p) => zip.file(p)?.async("string");
   const shared = [...((await read("xl/sharedStrings.xml")) ?? "").matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => textOf(m[1]));
   const rels = Object.fromEntries(
-    [...(await read("xl/_rels/workbook.xml.rels")).matchAll(/<Relationship [^>]*Id="([^"]+)"[^>]*Target="([^"]+)"/g)].map((m) => [m[1], m[2]]),
+    // 属性の順番は作ったソフトによって違う（Id が先・Target が先）
+    [...(await read("xl/_rels/workbook.xml.rels")).matchAll(/<Relationship [^>]*>/g)].map((m) => [m[0].match(/ Id="([^"]+)"/)[1], m[0].match(/ Target="([^"]+)"/)[1]]),
   );
   const sheets = {};
-  for (const m of (await read("xl/workbook.xml")).matchAll(/<sheet [^>]*name="([^"]+)"[^>]*r:id="([^"]+)"/g)) {
+  for (const [tag] of (await read("xl/workbook.xml")).matchAll(/<sheet [^>]*>/g)) {
+    const m = [tag, tag.match(/ name="([^"]+)"/)[1], tag.match(/ r:id="([^"]+)"/)[1]];
     const target = rels[m[2]].replace(/^\/?xl\//, "");
     const xml = await read(`xl/${target}`);
     const rows = [];
