@@ -7,6 +7,8 @@ import { useJhistData } from "@/lib/jhist/client";
 import { afterAnswers, eventsOf, makeChronoSet, sortCorrect, type ChronoEvent, type ChronoQuestion, type Level } from "@/lib/jhist/chrono";
 import { CHRONO_COUNT, CHRONO_NEAREST_GAP } from "@/lib/jhist/constants";
 import { useSet } from "../../SetContext";
+import { useHist } from "@/lib/jhist/context";
+import { yearLabel } from "@/lib/jhist/subject";
 
 const LABELS = ["ア", "イ", "ウ", "エ", "オ"];
 const LEVELS: { id: Level; label: string; sub: string }[] = [
@@ -18,10 +20,11 @@ function newId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-const yearText = (y: number) => (y < 0 ? `紀元前${-y}年` : `${y}年`);
+const yearText = yearLabel;
 
 // 日本史の年代チャレンジ：並べ替え・最も近い年・前後の判定を混ぜて5問（年代整序のデータだけで作る）
 export default function JhistChronoPage() {
+  const h = useHist();
   const { ready } = useSet();
   const { data, error: dataError } = useJhistData();
   const [level, setLevel] = useState<Level | null>(null);
@@ -35,7 +38,7 @@ export default function JhistChronoPage() {
 
   // 難易度の初期値：目標が早慶上智なら発展、それ以外は基本
   useEffect(() => {
-    fetch("/api/jhist", { cache: "no-store" })
+    fetch(h.api, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         setLevel((l) => l ?? (d?.settings?.goal === "adv" ? "adv" : "basic"));
@@ -59,7 +62,7 @@ export default function JhistChronoPage() {
 
   async function finish(all: boolean[]) {
     try {
-      const r = await fetch("/api/jhist/answers", {
+      const r = await fetch(`${h.api}/answers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source: "chrono", attemptId: newId(), items: set!.map((q, i) => ({ kind: q.kind, ok: all[i], qids: eventsOf(q).map((e) => e.qid) })) }),
@@ -93,12 +96,12 @@ export default function JhistChronoPage() {
   if (!set) {
     return (
       <div className="card">
-        <Link href="/c/jhist" className="muted">
-          ← 日本史のページ
+        <Link href={h.corner} className="muted">
+          ← {h.label}のページ
         </Link>
         <h1 style={{ margin: "8px 0" }}>⏳ 年代チャレンジ</h1>
         <p className="muted" style={{ marginTop: 0 }}>
-          並べ替え・最も近い年の出来事・前後の判定を混ぜて{CHRONO_COUNT}問。年号を手がかりに、時代の流れで整理しよう。
+          並べ替え・最も近い年の出来事・前後の判定を混ぜて{CHRONO_COUNT}問。{h.key === "jhist" ? "年号" : "西暦"}を手がかりに、時代の流れで整理しよう。
           {today && ` 今日は ${today.done}問（正解 ${today.ok}）`}
         </p>
         <div className="jh-settings">
@@ -155,8 +158,8 @@ export default function JhistChronoPage() {
           <button className="btn btn-primary btn-large" onClick={start}>
             🔁 もう5問
           </button>
-          <Link href="/c/jhist" className="btn btn-large">
-            日本史のページへ
+          <Link href={h.corner} className="btn btn-large">
+            {h.label}のページへ
           </Link>
         </div>
       </div>
@@ -199,7 +202,7 @@ export default function JhistChronoPage() {
         </>
       )}
       <div className="test-bottom">
-        <Link href="/c/jhist" className="link-btn">
+        <Link href={h.corner} className="link-btn">
           やめる
         </Link>
         {checked !== null && (

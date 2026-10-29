@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Accounts from "./Accounts";
 import JhistTeacher from "./JhistTeacher";
+import { HistProvider } from "@/lib/jhist/context";
+import { HIST_KEYS } from "@/lib/jhist/subject";
 
 // 管理者ページ：データのバックアップ（ファイルに保存）と読み込み（アップロード）
 type Status = { hasPassword: boolean; storage: string; persistent: boolean };
@@ -229,12 +231,16 @@ export default function AdminPage() {
             loadOne={loadAccount}
           />
 
-          <JhistTeacher
-            post={async (body) => {
-              if (!password) throw new Error("先に管理者パスワードを入力してください");
-              return post({ ...body, password });
-            }}
-          />
+          {HIST_KEYS.map((key) => (
+            <HistProvider key={key} subject={key}>
+              <JhistTeacher
+                post={async (body) => {
+                  if (!password) throw new Error("先に管理者パスワードを入力してください");
+                  return post({ ...body, subject: key, password });
+                }}
+              />
+            </HistProvider>
+          ))}
 
           <div className="card">
             <h2>⬇️ データをダウンロード</h2>

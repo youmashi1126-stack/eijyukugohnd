@@ -5,6 +5,7 @@ import path from "node:path";
 import { SET_IDS, type SetId } from "./sets";
 import { toMaterials, type Material } from "./materials";
 import { toExams, type Exam } from "./pastExams";
+import { HIST_KEYS, isHistKey, type HistKey } from "./jhist/subject";
 import {
   applyStudyPatch,
   metaOf,
@@ -89,7 +90,8 @@ function sliceAll(all: Record<number, StudyLog>, weeks: string[]): StudyWeeks {
 
 export type UserPatch = { nickname?: string; corners?: string[]; cornersKnown?: string[]; hidden?: string[] };
 
-// ---------- 日本史（jhist_ で始まる専用の保存先。英単語などの記録・習熟ポイントとは混ぜない） ----------
+// ---------- 日本史・世界史（jhist_・whist_ で始まる専用の保存先。英単語などの記録・習熟ポイントとは混ぜない） ----------
+// 科目（subject）ごとに保存先が分かれる。省略したときは日本史
 // profile：設定・練習の記録・集計など、terms：用語ごとの記憶の段階（どちらも中身の形は lib/jhist で決める）
 // log：回答ログ（1回の送信ごとに1行。365日たったら消す）、stats：問題ごとの回答数・正解数・選ばれた誤答の数（教員向け。消さない）
 // confusions：取り違えた組（正解の用語・選んだ誤答）の回数
@@ -199,18 +201,18 @@ interface Store {
   getPastExams(): Promise<Record<number, Exam[]>>;
   getPastExamsOf(number: number): Promise<Exam[]>;
   savePastExams(number: number, list: Exam[]): Promise<Exam[]>;
-  // 日本史
-  getJhistProfile(number: number): Promise<unknown | null>;
-  getJhistProfiles(): Promise<Record<number, unknown>>;
-  getJhistTerms(number: number): Promise<unknown | null>;
-  saveJhist(number: number, save: JhistSave): Promise<void>;
-  getJhistConfusions(number: number): Promise<JhistConfusion[]>;
-  getJhistQuestionStats(): Promise<JhistQuestionStat[]>;
-  addJhistReport(number: number, qid: string, text: string): Promise<void>;
-  getJhistReports(): Promise<JhistReport[]>;
+  // 日本史・世界史（subject を省略したら日本史）
+  getJhistProfile(number: number, subject?: HistKey): Promise<unknown | null>;
+  getJhistProfiles(subject?: HistKey): Promise<Record<number, unknown>>;
+  getJhistTerms(number: number, subject?: HistKey): Promise<unknown | null>;
+  saveJhist(number: number, save: JhistSave, subject?: HistKey): Promise<void>;
+  getJhistConfusions(number: number, subject?: HistKey): Promise<JhistConfusion[]>;
+  getJhistQuestionStats(subject?: HistKey): Promise<JhistQuestionStat[]>;
+  addJhistReport(number: number, qid: string, text: string, subject?: HistKey): Promise<void>;
+  getJhistReports(subject?: HistKey): Promise<JhistReport[]>;
   // バックアップ（設定・記憶の段階・取り違え。回答ログと問題ごとの集計は含めない）
-  exportJhist(): Promise<JhistDump>;
-  importJhist(dump: JhistDump): Promise<number>;
+  exportJhist(subject?: HistKey): Promise<JhistDump>;
+  importJhist(dump: JhistDump, subject?: HistKey): Promise<number>;
 }
 
 const KEEP_ATTEMPTS = 20;
@@ -384,13 +386,8 @@ const STUDY_KEY = "eijukugo:study";
 const MATERIALS_KEY = "eijukugo:materials";
 const PAST_EXAMS_KEY = "eijukugo:pastexams";
 const MIGRATED_KEY = "eijukugo:v2:migrated";
-const JH_PROFILE_KEY = "eijukugo:jhist:profile";
-const JH_TERMS_KEY = "eijukugo:jhist:terms";
-const JH_LOG_KEY = "eijukugo:jhist:log";
-const JH_STATS_KEY = "eijukugo:jhist:stats";
-const JH_WRONG_KEY = "eijukugo:jhist:wrong";
-const JH_CONFUSION_KEY = "eijukugo:jhist:confusions";
-const JH_REPORT_KEY = "eijukugo:jhist:reports";
+// 日本史・世界史のキー（日本史は eijukugo:jhist:〜、世界史は eijukugo:whist:〜）
+const jhKey = (subject: HistKey, name: "profile" | "terms" | "log" | "stats" | "wrong" | "confusions" | "reports") => `eijukugo:${histKey(subject)}:${name}`;
 const RENUMBERED_KEY = "eijukugo:renumbered";
 // 英熟語は以前からのキーをそのまま使い、英単語・中学英語は別のキーに保存する
 function redisKey(set: SetId, kind: Kind): string | null {
@@ -732,47 +729,47 @@ class RedisStore implements Store {
   }
 
   // 日本史（Redis＝以前の Vercel 版。数の多い記録は最新のものだけ残す）
-  async getJhistProfile(number: number) {
-    return parse<unknown>(await this.redis.hget(JH_PROFILE_KEY, String(number)), null);
+  async getJhistProfile(number: number, subject: HistKey = "jhist") {
+    return parse<unknown>(await this.redis.hget(jhKey(subject, "profile"), String(number)), null);
   }
 
-  async getJhistProfiles() {
-    return byNumber<unknown>(await this.redis.hgetall(JH_PROFILE_KEY), null);
+  async getJhistProfiles(subject: HistKey = "jhist") {
+    return byNumber<unknown>(await this.redis.hgetall(jhKey(subject, "profile")), null);
   }
 
-  async getJhistTerms(number: number) {
-    return parse<unknown>(await this.redis.hget(JH_TERMS_KEY, String(number)), null);
+  async getJhistTerms(number: number, subject: HistKey = "jhist") {
+    return parse<unknown>(await this.redis.hget(jhKey(subject, "terms"), String(number)), null);
   }
 
-  async saveJhist(number: number, save: JhistSave) {
+  async saveJhist(number: number, save: JhistSave, subject: HistKey = "jhist") {
     const f = String(number);
     const t = tally(save);
     const p = this.redis.pipeline();
-    if (save.profile !== undefined) p.hset(JH_PROFILE_KEY, { [f]: JSON.stringify(save.profile) });
-    if (save.terms !== undefined) p.hset(JH_TERMS_KEY, { [f]: JSON.stringify(save.terms) });
+    if (save.profile !== undefined) p.hset(jhKey(subject, "profile"), { [f]: JSON.stringify(save.profile) });
+    if (save.terms !== undefined) p.hset(jhKey(subject, "terms"), { [f]: JSON.stringify(save.terms) });
     if (save.log) {
-      p.lpush(JH_LOG_KEY, JSON.stringify({ number, at: new Date().toISOString(), ...save.log }));
-      p.ltrim(JH_LOG_KEY, 0, 20000);
+      p.lpush(jhKey(subject, "log"), JSON.stringify({ number, at: new Date().toISOString(), ...save.log }));
+      p.ltrim(jhKey(subject, "log"), 0, 20000);
     }
     for (const s of t.stats) {
-      p.hincrby(JH_STATS_KEY, `${s.qid}|n`, s.n);
-      if (s.ok) p.hincrby(JH_STATS_KEY, `${s.qid}|ok`, s.ok);
+      p.hincrby(jhKey(subject, "stats"), `${s.qid}|n`, s.n);
+      if (s.ok) p.hincrby(jhKey(subject, "stats"), `${s.qid}|ok`, s.ok);
     }
-    for (const w of t.wrong) p.hincrby(JH_WRONG_KEY, `${w.qid}|${w.choice}`, w.n);
-    for (const c of t.confusions) p.hincrby(`${JH_CONFUSION_KEY}:${f}`, `${c.term}|${c.wrong}`, c.n);
+    for (const w of t.wrong) p.hincrby(jhKey(subject, "wrong"), `${w.qid}|${w.choice}`, w.n);
+    for (const c of t.confusions) p.hincrby(`${jhKey(subject, "confusions")}:${f}`, `${c.term}|${c.wrong}`, c.n);
     await p.exec();
   }
 
-  async getJhistConfusions(number: number) {
-    const all = (await this.redis.hgetall<Record<string, number>>(`${JH_CONFUSION_KEY}:${number}`)) ?? {};
+  async getJhistConfusions(number: number, subject: HistKey = "jhist") {
+    const all = (await this.redis.hgetall<Record<string, number>>(`${jhKey(subject, "confusions")}:${number}`)) ?? {};
     return Object.entries(all).map(([k, n]) => {
       const [term, wrong] = k.split("|");
       return { term, wrong, n: Number(n) };
     });
   }
 
-  async getJhistQuestionStats() {
-    const [stats, wrong] = await Promise.all([this.redis.hgetall<Record<string, number>>(JH_STATS_KEY), this.redis.hgetall<Record<string, number>>(JH_WRONG_KEY)]);
+  async getJhistQuestionStats(subject: HistKey = "jhist") {
+    const [stats, wrong] = await Promise.all([this.redis.hgetall<Record<string, number>>(jhKey(subject, "stats")), this.redis.hgetall<Record<string, number>>(jhKey(subject, "wrong"))]);
     const out = new Map<string, JhistQuestionStat>();
     const get = (qid: string) => out.get(qid) ?? out.set(qid, { qid, n: 0, ok: 0, wrong: {} }).get(qid)!;
     for (const [k, v] of Object.entries(stats ?? {})) {
@@ -786,26 +783,26 @@ class RedisStore implements Store {
     return [...out.values()];
   }
 
-  async addJhistReport(number: number, qid: string, text: string) {
-    const id = await this.redis.incr(`${JH_REPORT_KEY}:id`);
-    await this.redis.lpush(JH_REPORT_KEY, JSON.stringify({ id, number, qid, text, at: new Date().toISOString() }));
+  async addJhistReport(number: number, qid: string, text: string, subject: HistKey = "jhist") {
+    const id = await this.redis.incr(`${jhKey(subject, "reports")}:id`);
+    await this.redis.lpush(jhKey(subject, "reports"), JSON.stringify({ id, number, qid, text, at: new Date().toISOString() }));
   }
 
-  async getJhistReports() {
-    return ((await this.redis.lrange(JH_REPORT_KEY, 0, -1)) ?? []).map((v) => parse<JhistReport>(v, {} as JhistReport));
+  async getJhistReports(subject: HistKey = "jhist") {
+    return ((await this.redis.lrange(jhKey(subject, "reports"), 0, -1)) ?? []).map((v) => parse<JhistReport>(v, {} as JhistReport));
   }
 
-  async exportJhist() {
-    const [profile, terms] = await Promise.all([this.redis.hgetall<Record<string, unknown>>(JH_PROFILE_KEY), this.redis.hgetall<Record<string, unknown>>(JH_TERMS_KEY)]);
+  async exportJhist(subject: HistKey = "jhist") {
+    const [profile, terms] = await Promise.all([this.redis.hgetall<Record<string, unknown>>(jhKey(subject, "profile")), this.redis.hgetall<Record<string, unknown>>(jhKey(subject, "terms"))]);
     const parsed = (h: Record<string, unknown> | null) => Object.fromEntries(Object.entries(h ?? {}).map(([k, v]) => [k, parse<unknown>(v, null)]));
     return { profile: parsed(profile), terms: parsed(terms) };
   }
 
-  async importJhist(dump: JhistDump) {
+  async importJhist(dump: JhistDump, subject: HistKey = "jhist") {
     const p = this.redis.pipeline();
     const str = (h: Record<string, unknown>) => Object.fromEntries(Object.entries(h).map(([k, v]) => [k, JSON.stringify(v)]));
-    if (Object.keys(dump.profile ?? {}).length) p.hset(JH_PROFILE_KEY, str(dump.profile));
-    if (Object.keys(dump.terms ?? {}).length) p.hset(JH_TERMS_KEY, str(dump.terms));
+    if (Object.keys(dump.profile ?? {}).length) p.hset(jhKey(subject, "profile"), str(dump.profile));
+    if (Object.keys(dump.terms ?? {}).length) p.hset(jhKey(subject, "terms"), str(dump.terms));
     await p.exec();
     return Object.keys(dump.profile ?? {}).length;
   }
@@ -836,16 +833,23 @@ const D1_SCHEMA = [
   // 学習時間を週ごとに分けたもの（study から作る。ランキングなどで必要な週だけ読む）と、1人分の目標・最後に記録した日
   "CREATE TABLE IF NOT EXISTS study_weeks (week TEXT NOT NULL, number INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (week, number))",
   "CREATE TABLE IF NOT EXISTS study_meta (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
-  // 日本史（英単語などの records とは別のテーブル）
-  "CREATE TABLE IF NOT EXISTS jhist_profile (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
-  "CREATE TABLE IF NOT EXISTS jhist_terms (number INTEGER PRIMARY KEY, data TEXT NOT NULL)",
-  "CREATE TABLE IF NOT EXISTS jhist_log (id INTEGER PRIMARY KEY AUTOINCREMENT, number INTEGER NOT NULL, at TEXT NOT NULL, source TEXT NOT NULL, data TEXT NOT NULL)",
-  "CREATE INDEX IF NOT EXISTS jhist_log_at ON jhist_log (at)",
-  "CREATE TABLE IF NOT EXISTS jhist_qstats (qid TEXT PRIMARY KEY, n INTEGER NOT NULL, ok INTEGER NOT NULL)",
-  "CREATE TABLE IF NOT EXISTS jhist_qwrong (qid TEXT NOT NULL, choice TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (qid, choice))",
-  "CREATE TABLE IF NOT EXISTS jhist_confusions (number INTEGER NOT NULL, term TEXT NOT NULL, wrong TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (number, term, wrong))",
-  "CREATE TABLE IF NOT EXISTS jhist_reports (id INTEGER PRIMARY KEY AUTOINCREMENT, number INTEGER NOT NULL, qid TEXT NOT NULL, text TEXT NOT NULL, at TEXT NOT NULL)",
+  // 日本史・世界史（英単語などの records とは別のテーブル。jhist_〜・whist_〜 の同じ形のテーブル）
+  ...HIST_KEYS.flatMap((h) => [
+    `CREATE TABLE IF NOT EXISTS ${h}_profile (number INTEGER PRIMARY KEY, data TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS ${h}_terms (number INTEGER PRIMARY KEY, data TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS ${h}_log (id INTEGER PRIMARY KEY AUTOINCREMENT, number INTEGER NOT NULL, at TEXT NOT NULL, source TEXT NOT NULL, data TEXT NOT NULL)`,
+    `CREATE INDEX IF NOT EXISTS ${h}_log_at ON ${h}_log (at)`,
+    `CREATE TABLE IF NOT EXISTS ${h}_qstats (qid TEXT PRIMARY KEY, n INTEGER NOT NULL, ok INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS ${h}_qwrong (qid TEXT NOT NULL, choice TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (qid, choice))`,
+    `CREATE TABLE IF NOT EXISTS ${h}_confusions (number INTEGER NOT NULL, term TEXT NOT NULL, wrong TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (number, term, wrong))`,
+    `CREATE TABLE IF NOT EXISTS ${h}_reports (id INTEGER PRIMARY KEY AUTOINCREMENT, number INTEGER NOT NULL, qid TEXT NOT NULL, text TEXT NOT NULL, at TEXT NOT NULL)`,
+  ]),
 ];
+// 科目のテーブルの頭（SQL に入れるので、決まった2つ以外は受け付けない）
+function histKey(subject: HistKey): HistKey {
+  if (!isHistKey(subject)) throw new Error(`unknown subject: ${subject}`);
+  return subject;
+}
 const UPSERT_RECORD =
   "INSERT INTO records (set_id, kind, number, data) VALUES (?, ?, ?, ?) ON CONFLICT (set_id, kind, number) DO UPDATE SET data = excluded.data";
 // テストの集計がまだないまとめだけを置き換える
@@ -1212,42 +1216,46 @@ class D1Store implements Store {
   }
 
   // ---------- 日本史 ----------
-  private purgedOn = "";
+  private purgedOn: Partial<Record<HistKey, string>> = {};
 
-  async getJhistProfile(number: number) {
+  async getJhistProfile(number: number, subject: HistKey = "jhist") {
     await this.init();
-    const row = await this.db.prepare("SELECT data FROM jhist_profile WHERE number = ?").bind(number).first<{ data: string }>();
+    const h = histKey(subject);
+    const row = await this.db.prepare(`SELECT data FROM ${h}_profile WHERE number = ?`).bind(number).first<{ data: string }>();
     return row ? (JSON.parse(row.data) as unknown) : null;
   }
 
-  async getJhistProfiles() {
+  async getJhistProfiles(subject: HistKey = "jhist") {
     await this.init();
-    const { results } = await this.db.prepare("SELECT number, data FROM jhist_profile").all<{ number: number; data: string }>();
+    const h = histKey(subject);
+    const { results } = await this.db.prepare(`SELECT number, data FROM ${h}_profile`).all<{ number: number; data: string }>();
     return Object.fromEntries(results.map((r) => [r.number, JSON.parse(r.data) as unknown]));
   }
 
-  async getJhistTerms(number: number) {
+  async getJhistTerms(number: number, subject: HistKey = "jhist") {
     await this.init();
-    const row = await this.db.prepare("SELECT data FROM jhist_terms WHERE number = ?").bind(number).first<{ data: string }>();
+    const h = histKey(subject);
+    const row = await this.db.prepare(`SELECT data FROM ${h}_terms WHERE number = ?`).bind(number).first<{ data: string }>();
     return row ? (JSON.parse(row.data) as unknown) : null;
   }
 
   // 1回の送信を1つのまとまりで保存する。回数は「今の値に足す」形にして、同時に送られても数え漏れがないようにする
   // D1 の1回の処理で使える問い合わせの数に限りがあるので、問題ごとの集計は複数行を1つの文にまとめる
-  async saveJhist(number: number, save: JhistSave) {
+  async saveJhist(number: number, save: JhistSave, subject: HistKey = "jhist") {
     await this.init();
+    const h = histKey(subject);
     const t = tally(save);
     const statements: D1Stmt[] = [];
     if (save.profile !== undefined) {
-      statements.push(this.db.prepare("INSERT OR REPLACE INTO jhist_profile (number, data) VALUES (?, ?)").bind(number, JSON.stringify(save.profile)));
+      statements.push(this.db.prepare(`INSERT OR REPLACE INTO ${h}_profile (number, data) VALUES (?, ?)`).bind(number, JSON.stringify(save.profile)));
     }
     if (save.terms !== undefined) {
-      statements.push(this.db.prepare("INSERT OR REPLACE INTO jhist_terms (number, data) VALUES (?, ?)").bind(number, JSON.stringify(save.terms)));
+      statements.push(this.db.prepare(`INSERT OR REPLACE INTO ${h}_terms (number, data) VALUES (?, ?)`).bind(number, JSON.stringify(save.terms)));
     }
     if (save.log) {
       statements.push(
         this.db
-          .prepare("INSERT INTO jhist_log (number, at, source, data) VALUES (?, ?, ?, ?)")
+          .prepare(`INSERT INTO ${h}_log (number, at, source, data) VALUES (?, ?, ?, ?)`)
           .bind(number, new Date().toISOString(), save.log.source, JSON.stringify(save.log.entries)),
       );
     }
@@ -1257,36 +1265,38 @@ class D1Store implements Store {
         statements.push(this.db.prepare(`${head} VALUES ${chunk.map(() => marks).join(", ")} ${tail}`).bind(...chunk.flatMap(values)));
       }
     };
-    many(t.stats, 30, "INSERT INTO jhist_qstats (qid, n, ok)", "(?, ?, ?)", "ON CONFLICT (qid) DO UPDATE SET n = n + excluded.n, ok = ok + excluded.ok", (r) => [r.qid, r.n, r.ok]);
-    many(t.wrong, 30, "INSERT INTO jhist_qwrong (qid, choice, n)", "(?, ?, ?)", "ON CONFLICT (qid, choice) DO UPDATE SET n = n + excluded.n", (r) => [r.qid, r.choice, r.n]);
+    many(t.stats, 30, `INSERT INTO ${h}_qstats (qid, n, ok)`, "(?, ?, ?)", "ON CONFLICT (qid) DO UPDATE SET n = n + excluded.n, ok = ok + excluded.ok", (r) => [r.qid, r.n, r.ok]);
+    many(t.wrong, 30, `INSERT INTO ${h}_qwrong (qid, choice, n)`, "(?, ?, ?)", "ON CONFLICT (qid, choice) DO UPDATE SET n = n + excluded.n", (r) => [r.qid, r.choice, r.n]);
     many(
       t.confusions,
       24,
-      "INSERT INTO jhist_confusions (number, term, wrong, n)",
+      `INSERT INTO ${h}_confusions (number, term, wrong, n)`,
       "(?, ?, ?, ?)",
       "ON CONFLICT (number, term, wrong) DO UPDATE SET n = n + excluded.n",
       (r) => [number, r.term, r.wrong, r.n],
     );
     // 古い回答ログを消す（1日に1回だけ）
     const today = new Date().toISOString().slice(0, 10);
-    if (this.purgedOn !== today) {
-      this.purgedOn = today;
-      statements.push(this.db.prepare("DELETE FROM jhist_log WHERE at < ?").bind(new Date(Date.now() - JHIST_LOG_DAYS * 86400000).toISOString()));
+    if (this.purgedOn[h] !== today) {
+      this.purgedOn[h] = today;
+      statements.push(this.db.prepare(`DELETE FROM ${h}_log WHERE at < ?`).bind(new Date(Date.now() - JHIST_LOG_DAYS * 86400000).toISOString()));
     }
     if (statements.length) await this.db.batch(statements);
   }
 
-  async getJhistConfusions(number: number) {
+  async getJhistConfusions(number: number, subject: HistKey = "jhist") {
     await this.init();
-    const { results } = await this.db.prepare("SELECT term, wrong, n FROM jhist_confusions WHERE number = ?").bind(number).all<JhistConfusion>();
+    const h = histKey(subject);
+    const { results } = await this.db.prepare(`SELECT term, wrong, n FROM ${h}_confusions WHERE number = ?`).bind(number).all<JhistConfusion>();
     return results;
   }
 
-  async getJhistQuestionStats() {
+  async getJhistQuestionStats(subject: HistKey = "jhist") {
     await this.init();
+    const h = histKey(subject);
     const [stats, wrong] = await Promise.all([
-      this.db.prepare("SELECT qid, n, ok FROM jhist_qstats").all<{ qid: string; n: number; ok: number }>(),
-      this.db.prepare("SELECT qid, choice, n FROM jhist_qwrong").all<{ qid: string; choice: string; n: number }>(),
+      this.db.prepare(`SELECT qid, n, ok FROM ${h}_qstats`).all<{ qid: string; n: number; ok: number }>(),
+      this.db.prepare(`SELECT qid, choice, n FROM ${h}_qwrong`).all<{ qid: string; choice: string; n: number }>(),
     ]);
     const out = new Map(stats.results.map((r) => [r.qid, { ...r, wrong: {} as Record<string, number> }]));
     for (const w of wrong.results) {
@@ -1296,23 +1306,26 @@ class D1Store implements Store {
     return [...out.values()];
   }
 
-  async addJhistReport(number: number, qid: string, text: string) {
+  async addJhistReport(number: number, qid: string, text: string, subject: HistKey = "jhist") {
     await this.init();
-    await this.db.prepare("INSERT INTO jhist_reports (number, qid, text, at) VALUES (?, ?, ?, ?)").bind(number, qid, text, new Date().toISOString()).run();
+    const h = histKey(subject);
+    await this.db.prepare(`INSERT INTO ${h}_reports (number, qid, text, at) VALUES (?, ?, ?, ?)`).bind(number, qid, text, new Date().toISOString()).run();
   }
 
-  async getJhistReports() {
+  async getJhistReports(subject: HistKey = "jhist") {
     await this.init();
-    const { results } = await this.db.prepare("SELECT id, number, qid, text, at FROM jhist_reports ORDER BY id DESC").all<JhistReport>();
+    const h = histKey(subject);
+    const { results } = await this.db.prepare(`SELECT id, number, qid, text, at FROM ${h}_reports ORDER BY id DESC`).all<JhistReport>();
     return results;
   }
 
-  async exportJhist() {
+  async exportJhist(subject: HistKey = "jhist") {
     await this.init();
+    const h = histKey(subject);
     const [profile, terms, conf] = await Promise.all([
-      this.db.prepare("SELECT number, data FROM jhist_profile").all<{ number: number; data: string }>(),
-      this.db.prepare("SELECT number, data FROM jhist_terms").all<{ number: number; data: string }>(),
-      this.db.prepare("SELECT number, term, wrong, n FROM jhist_confusions").all<JhistConfusion & { number: number }>(),
+      this.db.prepare(`SELECT number, data FROM ${h}_profile`).all<{ number: number; data: string }>(),
+      this.db.prepare(`SELECT number, data FROM ${h}_terms`).all<{ number: number; data: string }>(),
+      this.db.prepare(`SELECT number, term, wrong, n FROM ${h}_confusions`).all<JhistConfusion & { number: number }>(),
     ]);
     const confusions: Record<string, JhistConfusion[]> = {};
     for (const c of conf.results) (confusions[c.number] ??= []).push({ term: c.term, wrong: c.wrong, n: c.n });
@@ -1323,19 +1336,20 @@ class D1Store implements Store {
     };
   }
 
-  async importJhist(dump: JhistDump) {
+  async importJhist(dump: JhistDump, subject: HistKey = "jhist") {
     await this.init();
+    const h = histKey(subject);
     const statements: D1Stmt[] = [];
     for (const [n, v] of Object.entries(dump.profile ?? {})) {
-      statements.push(this.db.prepare("INSERT OR REPLACE INTO jhist_profile (number, data) VALUES (?, ?)").bind(Number(n), JSON.stringify(v)));
+      statements.push(this.db.prepare(`INSERT OR REPLACE INTO ${h}_profile (number, data) VALUES (?, ?)`).bind(Number(n), JSON.stringify(v)));
     }
     for (const [n, v] of Object.entries(dump.terms ?? {})) {
-      statements.push(this.db.prepare("INSERT OR REPLACE INTO jhist_terms (number, data) VALUES (?, ?)").bind(Number(n), JSON.stringify(v)));
+      statements.push(this.db.prepare(`INSERT OR REPLACE INTO ${h}_terms (number, data) VALUES (?, ?)`).bind(Number(n), JSON.stringify(v)));
     }
     for (const [n, list] of Object.entries(dump.confusions ?? {})) {
       for (const c of list) {
         statements.push(
-          this.db.prepare("INSERT OR REPLACE INTO jhist_confusions (number, term, wrong, n) VALUES (?, ?, ?, ?)").bind(Number(n), c.term, c.wrong, c.n),
+          this.db.prepare(`INSERT OR REPLACE INTO ${h}_confusions (number, term, wrong, n) VALUES (?, ?, ?, ?)`).bind(Number(n), c.term, c.wrong, c.n),
         );
       }
     }
@@ -1347,6 +1361,15 @@ class D1Store implements Store {
 // ---------- ローカル開発用（.data/db.json に保存） ----------
 
 type SetData = Partial<Record<Kind, Record<string, unknown>>>;
+type LocalHist = {
+  profile: Record<string, unknown>;
+  terms: Record<string, unknown>;
+  log: { number: number; at: string; source: string; entries: unknown[] }[];
+  stats: Record<string, { n: number; ok: number }>;
+  wrong: Record<string, Record<string, number>>;
+  confusions: Record<string, JhistConfusion[]>;
+  reports: JhistReport[];
+};
 
 type Db = {
   users: Record<string, User>;
@@ -1356,15 +1379,8 @@ type Db = {
   materials?: Record<string, Material[]>;
   pastExams?: Record<string, Exam[]>;
   renumbered?: boolean;
-  jhist?: {
-    profile: Record<string, unknown>;
-    terms: Record<string, unknown>;
-    log: { number: number; at: string; source: string; entries: unknown[] }[];
-    stats: Record<string, { n: number; ok: number }>;
-    wrong: Record<string, Record<string, number>>;
-    confusions: Record<string, JhistConfusion[]>;
-    reports: JhistReport[];
-  };
+  jhist?: LocalHist;
+  whist?: LocalHist;
   // 以前の形式（英熟語のみ）
   results?: Record<string, TestResult[]>;
   practice?: Record<string, Record<string, number>>;
@@ -1601,24 +1617,24 @@ class LocalStore implements Store {
   }
 
   // ---------- 日本史 ----------
-  private get jh() {
-    return (this.db.jhist ??= { profile: {}, terms: {}, log: [], stats: {}, wrong: {}, confusions: {}, reports: [] });
+  private jh(subject: HistKey): LocalHist {
+    return (this.db[histKey(subject)] ??= { profile: {}, terms: {}, log: [], stats: {}, wrong: {}, confusions: {}, reports: [] });
   }
 
-  async getJhistProfile(number: number) {
-    return this.jh.profile[number] ?? null;
+  async getJhistProfile(number: number, subject: HistKey = "jhist") {
+    return this.jh(subject).profile[number] ?? null;
   }
 
-  async getJhistProfiles() {
-    return Object.fromEntries(Object.entries(this.jh.profile).map(([k, v]) => [Number(k), v]));
+  async getJhistProfiles(subject: HistKey = "jhist") {
+    return Object.fromEntries(Object.entries(this.jh(subject).profile).map(([k, v]) => [Number(k), v]));
   }
 
-  async getJhistTerms(number: number) {
-    return this.jh.terms[number] ?? null;
+  async getJhistTerms(number: number, subject: HistKey = "jhist") {
+    return this.jh(subject).terms[number] ?? null;
   }
 
-  async saveJhist(number: number, save: JhistSave) {
-    const jh = this.jh;
+  async saveJhist(number: number, save: JhistSave, subject: HistKey = "jhist") {
+    const jh = this.jh(subject);
     const t = tally(save);
     if (save.profile !== undefined) jh.profile[number] = save.profile;
     if (save.terms !== undefined) jh.terms[number] = save.terms;
@@ -1642,32 +1658,35 @@ class LocalStore implements Store {
     this.save();
   }
 
-  async getJhistConfusions(number: number) {
-    return this.jh.confusions[number] ?? [];
+  async getJhistConfusions(number: number, subject: HistKey = "jhist") {
+    return this.jh(subject).confusions[number] ?? [];
   }
 
-  async getJhistQuestionStats() {
-    return Object.entries(this.jh.stats).map(([qid, s]) => ({ qid, n: s.n, ok: s.ok, wrong: this.jh.wrong[qid] ?? {} }));
+  async getJhistQuestionStats(subject: HistKey = "jhist") {
+    const jh = this.jh(subject);
+    return Object.entries(jh.stats).map(([qid, s]) => ({ qid, n: s.n, ok: s.ok, wrong: jh.wrong[qid] ?? {} }));
   }
 
-  async addJhistReport(number: number, qid: string, text: string) {
-    const reports = this.jh.reports;
+  async addJhistReport(number: number, qid: string, text: string, subject: HistKey = "jhist") {
+    const reports = this.jh(subject).reports;
     reports.push({ id: (reports.at(-1)?.id ?? 0) + 1, number, qid, text, at: new Date().toISOString() });
     this.save();
   }
 
-  async getJhistReports() {
-    return [...this.jh.reports].reverse();
+  async getJhistReports(subject: HistKey = "jhist") {
+    return [...this.jh(subject).reports].reverse();
   }
 
-  async exportJhist() {
-    return { profile: this.jh.profile, terms: this.jh.terms, confusions: this.jh.confusions };
+  async exportJhist(subject: HistKey = "jhist") {
+    const jh = this.jh(subject);
+    return { profile: jh.profile, terms: jh.terms, confusions: jh.confusions };
   }
 
-  async importJhist(dump: JhistDump) {
-    Object.assign(this.jh.profile, dump.profile ?? {});
-    Object.assign(this.jh.terms, dump.terms ?? {});
-    Object.assign(this.jh.confusions, dump.confusions ?? {});
+  async importJhist(dump: JhistDump, subject: HistKey = "jhist") {
+    const jh = this.jh(subject);
+    Object.assign(jh.profile, dump.profile ?? {});
+    Object.assign(jh.terms, dump.terms ?? {});
+    Object.assign(jh.confusions, dump.confusions ?? {});
     this.save();
     return Object.keys(dump.profile ?? {}).length;
   }

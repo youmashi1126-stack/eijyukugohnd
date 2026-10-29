@@ -5,9 +5,10 @@ import { viewSubject, viewTotal, type Exam } from "./pastExams";
 import { getPlayers } from "./players";
 import { SET_IDS, SETS, type Corner, type SetId } from "./sets";
 import { getStore } from "./store";
-import { JHIST_SECTION_COUNT } from "@/data/jhist/meta";
+import { histIndex } from "./jhist/data";
 import { dailyFor, eraStats, remainingOf, toTermStates } from "./jhist/plan";
 import { currentStreak, practiceSummary as jhistPractice, settingsOf, testAverage, toProfile } from "./jhist/profile";
+import { HIST_KEYS, type HistKey } from "./jhist/subject";
 import { addDays, goalFor, metaOf, studiedDays, toStudyLog, weekStart, weekTotal, type StudyLog } from "./study";
 import { jstDate, practiceSummary, type Player, type User } from "./types";
 
@@ -19,8 +20,10 @@ export type HomeData = {
   studyLast: Record<number, string | null>; // 最後に学習時間を記録した日
   materials: Record<number, Material[]>;
   pastExams: Record<number, Exam[]>;
-  jhist: Record<number, unknown>; // 日本史の記録のまとめ（jhist_profile）
-  jhistTerms: Record<number, unknown>; // 日本史の用語の段階（1人分を読むときだけ。今日のノルマの残りの計算用）
+  // 日本史・世界史の記録のまとめ（jhist_profile・whist_profile）
+  hist: Record<HistKey, Record<number, unknown>>;
+  // 日本史・世界史の用語の段階（1人分を読むときだけ。今日のノルマの残りの計算用）
+  histTerms: Record<HistKey, Record<number, unknown>>;
 };
 
 // 概要に使う記録をまとめて読む。only を渡すと、学習時間・教材・過去問はその人の分だけ読む
@@ -36,9 +39,13 @@ export async function loadHomeData(only?: number): Promise<HomeData> {
     only === undefined ? store.getMaterials() : store.getMaterialsOf(only).then((m) => ({ [only]: m })),
     only === undefined ? store.getPastExams() : store.getPastExamsOf(only).then((p) => ({ [only]: p })),
   ]);
-  const jhist = only === undefined ? await store.getJhistProfiles() : { [only]: await store.getJhistProfile(only) };
-  const jhistTerms = only === undefined ? {} : { [only]: await store.getJhistTerms(only) };
-  return { today, players, study, studyLast, materials, pastExams, jhist, jhistTerms };
+  const hist = {} as HomeData["hist"];
+  const histTerms = {} as HomeData["histTerms"];
+  for (const key of HIST_KEYS) {
+    hist[key] = only === undefined ? await store.getJhistProfiles(key) : { [only]: await store.getJhistProfile(only, key) };
+    histTerms[key] = only === undefined ? {} : { [only]: await store.getJhistTerms(only, key) };
+  }
+  return { today, players, study, studyLast, materials, pastExams, hist, histTerms };
 }
 
 // showAll：見せない設定のコーナーも含める（本人・管理者）
@@ -58,6 +65,7 @@ export function buildSummary(user: User, data: HomeData, { isMe, showAll }: { is
     materials: null,
     pastexams: null,
     jhist: null,
+    whist: null,
   };
 
   for (const set of SET_IDS.filter(shows)) {
@@ -122,18 +130,20 @@ export function buildSummary(user: User, data: HomeData, { isMe, showAll }: { is
     summary.pastexams = { univs: exams.length, solved, remain, exams };
   }
 
-  if (shows("jhist")) {
-    const p = toProfile(data.jhist[number]);
+  for (const key of HIST_KEYS.filter(shows)) {
+    const ix = histIndex(key);
+    const p = toProfile(data.hist[key][number]);
     const settings = settingsOf(p, today);
-    const eras = eraStats(p.summary, settings.goal);
+    const eras = eraStats(p.summary, settings.goal, ix.eras.length, ix.terms);
+    const terms = data.histTerms[key];
     // 今日のノルマの残り：用語の段階を読んだときはその場で計算、全員分の一覧では今日すでに決まったノルマから（まだなら null）
     const remaining =
-      number in data.jhistTerms
-        ? remainingOf(dailyFor(p.daily, settings, toTermStates(data.jhistTerms[number]), today))
+      number in terms
+        ? remainingOf(dailyFor(p.daily, settings, toTermStates(terms[number]), today, ix.terms))
         : p.daily?.date === today
           ? remainingOf(p.daily)
           : null;
-    summary.jhist = {
+    summary[key] = {
       fixed: eras.reduce((a, e) => a + e.fixed, 0),
       target: eras.reduce((a, e) => a + e.target, 0),
       remaining,
@@ -141,7 +151,7 @@ export function buildSummary(user: User, data: HomeData, { isMe, showAll }: { is
       count: p.tests.count,
       average: testAverage(p.tests),
       best: p.tests.best,
-      sections: JHIST_SECTION_COUNT,
+      sections: ix.sections.length,
       ...jhistPractice(p),
     };
   }

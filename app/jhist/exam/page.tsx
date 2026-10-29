@@ -10,6 +10,7 @@ import type { Mark } from "@/lib/jhist/srs";
 import { useSet } from "../../SetContext";
 import { InputAnswer } from "../InputAnswer";
 import { Feedback, ReportButton } from "../parts";
+import { useHist } from "@/lib/jhist/context";
 
 type Kind = "input" | "three" | "multi" | "combo";
 type Range = "learned" | "all" | number;
@@ -35,6 +36,7 @@ function newId() {
 
 // 入試形式トレーニング：難関大の出題形式への対策。ノルマ・連続日数・ランキングには入らない
 export default function JhistExamPage() {
+  const h = useHist();
   const { ready } = useSet();
   const { data, error } = useJhistData();
   const [learned, setLearned] = useState<Set<number> | null>(null);
@@ -45,7 +47,7 @@ export default function JhistExamPage() {
   const [note, setNote] = useState("");
 
   useEffect(() => {
-    fetch("/api/jhist/learned", { cache: "no-store" })
+    fetch(`${h.api}/learned`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : { learned: [], settings: null }))
       .then((d) => {
         setLearned(new Set(d.learned));
@@ -63,7 +65,7 @@ export default function JhistExamPage() {
   // 難易度を切り替えたら設定にも保存する（次に開いたときもその難易度）
   function changeLevel(l: Level) {
     setLevel(l);
-    fetch("/api/jhist/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ examLevel: l }) }).catch(() => {});
+    fetch(`${h.api}/settings`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ examLevel: l }) }).catch(() => {});
   }
 
   function poolOf(r: Range): SQ[] {
@@ -105,8 +107,8 @@ export default function JhistExamPage() {
 
   return (
     <div className="card">
-      <Link href="/c/jhist" className="muted">
-        ← 日本史のページ
+      <Link href={h.corner} className="muted">
+        ← {h.label}のページ
       </Link>
       <h1 style={{ margin: "8px 0" }}>🎯 入試形式トレーニング</h1>
       <p className="muted" style={{ marginTop: 0 }}>
@@ -156,6 +158,7 @@ export default function JhistExamPage() {
 }
 
 function Runner({ data, items, level, note, onExit }: { data: JData; items: Item[]; level: Level; note: string; onExit: () => void }) {
+  const h = useHist();
   const [idx, setIdx] = useState(0);
   const [result, setResult] = useState<Mark | null>(null);
   const [marks, setMarks] = useState<Mark[]>([]);
@@ -172,7 +175,7 @@ function Runner({ data, items, level, note, onExit }: { data: JData; items: Item
   }
   async function finish(all: Sent[]) {
     try {
-      const r = await fetch("/api/jhist/answers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "exam", attemptId: newId(), answers: all }) });
+      const r = await fetch(`${h.api}/answers`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "exam", attemptId: newId(), answers: all }) });
       if (!r.ok) throw new Error();
       setSaved("ok");
       playSfx("finish");
@@ -208,8 +211,8 @@ function Runner({ data, items, level, note, onExit }: { data: JData; items: Item
           <button className="btn btn-primary btn-large" onClick={onExit}>
             ほかの形式へ
           </button>
-          <Link href="/c/jhist" className="btn btn-large">
-            日本史のページへ
+          <Link href={h.corner} className="btn btn-large">
+            {h.label}のページへ
           </Link>
         </div>
       </div>

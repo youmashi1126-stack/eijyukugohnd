@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 
 import type { Daily, JhistSettings } from "@/lib/jhist/profile";
+import { useHist } from "@/lib/jhist/context";
 
 // 自分の日本史の記録：節別の練習の最高点（セクションの key → [正解数, 出題数]）、設定、今日のノルマ、連続日数、
 // 定着（段階4以上）・学習中（段階1〜3）の用語数と、目標の対象用語数
@@ -23,11 +24,12 @@ export type JhistMe = {
 };
 
 export function useJhistMe(): { me: JhistMe | null; error: boolean } {
+  const h = useHist();
   const [me, setMe] = useState<JhistMe | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
     let alive = true;
-    fetch("/api/jhist", { cache: "no-store" })
+    fetch(h.api, { cache: "no-store" })
       .then(async (r) => {
         if (!r.ok) throw new Error();
         const d = await r.json();

@@ -3566,6 +3566,44 @@ a.home-card:hover {
   border-left-color: #9f1239;
 }
 
+/* ---------- 世界史のコーナー（古地図の茶色） ---------- */
+[data-set="whist"] {
+  --primary: #7c4a1e;
+  --primary-2: #b7791f;
+  --primary-soft: #f8efe4;
+  --border: #ecdcc8;
+  --shadow: 0 8px 24px rgba(124, 74, 30, 0.14);
+  --text: #2a1f14;
+  --muted: #7a6a58;
+}
+
+[data-set="whist"] body {
+  background: linear-gradient(160deg, #fdf8f1 0%, #f9f3e8 45%, #f4f1e6 100%) fixed;
+}
+
+[data-set="whist"] .hero {
+  background: linear-gradient(135deg, #4a2c11 0%, #7c4a1e 55%, #b7791f 100%);
+}
+
+[data-set="whist"] .menu-practice,
+[data-set="whist"] .practice-hero {
+  background: linear-gradient(135deg, #7c4a1e, #b7791f);
+}
+
+[data-set="whist"] .btn-primary {
+  box-shadow: 0 6px 16px rgba(124, 74, 30, 0.3);
+}
+
+.set-tab.whist.active {
+  border-color: #7c4a1e;
+  background: linear-gradient(135deg, #f8efe4, #fdf3dc);
+  box-shadow: 0 6px 18px rgba(124, 74, 30, 0.25);
+}
+
+.home-card.whist {
+  border-left-color: #7c4a1e;
+}
+
 /* 節別の練習：セクション一覧 */
 .jh-section-list {
   display: flex;
@@ -4290,4 +4328,27 @@ a.home-card:hover {
   gap: 4px 12px;
   margin-top: 6px;
   font-size: 13px;
+}
+
+/* 日本史の色で書いてある部品を、世界史では茶色に（同じ強さの指定より後に置く） */
+[data-set="whist"] .jh-answer,
+[data-set="whist"] .jh-fill,
+[data-set="whist"] .jh-today-go {
+  color: #7c4a1e;
+  border-bottom-color: #7c4a1e;
+}
+
+[data-set="whist"] .jh-imp.imp-S,
+[data-set="whist"] .jh-era-bar .fixed,
+[data-set="whist"] .jh-era-legend .fixed {
+  background: #7c4a1e;
+}
+
+[data-set="whist"] .jh-era-bar .learning,
+[data-set="whist"] .jh-era-legend .learning {
+  background: #e3c49a;
+}
+
+[data-set="whist"] .jh-today-card {
+  background: linear-gradient(135deg, #4a2c11, #7c4a1e);
 }

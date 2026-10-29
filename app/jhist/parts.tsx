@@ -3,9 +3,11 @@
 import { useState } from "react";
 import { BLANK, type CQuestion, type JData } from "@/lib/jhist/client";
 import { REPORT_MAX } from "@/lib/jhist/constants";
+import { useHist } from "@/lib/jhist/context";
 
 // 「問題がおかしい」ボタン：押すと理由（任意・100字まで）を書いて送れる
 export function ReportButton({ qid }: { qid: string }) {
+  const h = useHist();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [state, setState] = useState<"" | "sending" | "sent" | "error">("");
@@ -20,7 +22,7 @@ export function ReportButton({ qid }: { qid: string }) {
   async function send() {
     setState("sending");
     try {
-      const r = await fetch("/api/jhist/report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ qid, text }) });
+      const r = await fetch(`${h.api}/report`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ qid, text }) });
       if (!r.ok) throw new Error();
       setState("sent");
     } catch {

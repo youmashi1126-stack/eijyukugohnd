@@ -1,14 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { JHIST_QUESTION_COUNT, JHIST_SECTION_COUNT } from "@/data/jhist/meta";
-import { JHIST_ERAS } from "@/data/jhist/meta";
 import { CHRONO_COUNT, EXAM_COUNT, TEST_COUNT } from "@/lib/jhist/constants";
 import { useJhistData } from "@/lib/jhist/client";
 import { PairList } from "./PairList";
 import { useConfusions } from "./useConfusions";
 import { markOf } from "@/lib/jhist/profile";
 import { useJhistMe } from "./useJhistMe";
+import { useHist } from "@/lib/jhist/context";
 
 // これから追加するメニュー
 
@@ -20,6 +19,7 @@ function shortDate(date: string) {
 // 日本史コーナーのページ（/c/jhist）。上から：今日の学習、時代別の定着率、段階別の語数、入試までの日数と見込み日、
 // 節別の練習、実力テスト、年代チャレンジ、取り違えやすい語、入試形式トレーニング
 export default function JhistCorner() {
+  const h = useHist();
   const { me, error } = useJhistMe();
   const { data } = useJhistData();
   const pairs = useConfusions();
@@ -31,9 +31,9 @@ export default function JhistCorner() {
   return (
     <>
       <div className="card hero">
-        <h1 style={{ marginTop: 4 }}>📕 日本史</h1>
+        <h1 style={{ marginTop: 4 }}>{h.icon} {h.label}</h1>
         <p className="muted" style={{ margin: 0 }}>
-          日本史一問一答{JHIST_QUESTION_COUNT.toLocaleString()}問の4択・正誤・記述・年代テスト
+          {h.label}一問一答{h.questionCount.toLocaleString()}問の4択・正誤・記述・年代テスト
         </p>
         <div className="stats">
           <div className="stat">
@@ -52,14 +52,14 @@ export default function JhistCorner() {
             <div className="stat-label">練習クリア</div>
             <div className="stat-value">
               {me ? cleared : "-"}
-              <small>/{JHIST_SECTION_COUNT}</small>
+              <small>/{h.sectionCount}</small>
             </div>
           </div>
         </div>
       </div>
 
       {/* 1. 今日の学習 */}
-      <Link href="/jhist/today" className="card jh-today-card">
+      <Link href={`${h.base}/today`} className="card jh-today-card">
         <span className="jh-today-icon">📅</span>
         <span className="jh-today-body">
           <b>今日の学習</b>
@@ -85,8 +85,10 @@ export default function JhistCorner() {
             <h2 style={{ marginTop: 0 }}>🕰️ 時代別の定着率</h2>
             <div className="jh-eras">
               {me.eras.map((e, i) => (
-                <div key={JHIST_ERAS[i]} className="jh-era">
-                  <span className="jh-era-name">{JHIST_ERAS[i]}</span>
+                <div key={h.eras[i]} className="jh-era">
+                  <span className="jh-era-name" title={h.eras[i]}>
+                    {h.eraShort[i]}
+                  </span>
                   <span className="jh-era-bar" title={`定着 ${e.fixed}・学習中 ${e.learning}・全 ${e.target}語`}>
                     <i className="fixed" style={{ width: `${e.target ? (e.fixed / e.target) * 100 : 0}%` }} />
                     <i className="learning" style={{ width: `${e.target ? (e.learning / e.target) * 100 : 0}%` }} />
@@ -131,12 +133,12 @@ export default function JhistCorner() {
 
       <div className="menu">
         {/* 5. 節別の練習 ／ 6. 実力テスト */}
-        <Link href="/jhist/practice" className="menu-card menu-practice">
+        <Link href={`${h.base}/practice`} className="menu-card menu-practice">
           <div className="menu-icon">📚</div>
           <div className="menu-title">節別の練習</div>
-          <div className="menu-sub">{JHIST_SECTION_COUNT}セクション・一覧で確認してから4択テスト（1問20秒）</div>
+          <div className="menu-sub">{h.sectionCount}セクション・一覧で確認してから4択テスト（1問20秒）</div>
         </Link>
-        <Link href="/jhist/test" className="menu-card menu-test">
+        <Link href={`${h.base}/test`} className="menu-card menu-test">
           <div className="menu-icon">🚀</div>
           <div className="menu-title">実力テスト</div>
           <div className="menu-sub">
@@ -144,7 +146,7 @@ export default function JhistCorner() {
           </div>
         </Link>
         {/* 7. 年代チャレンジ */}
-        <Link href="/jhist/chrono" className="menu-card menu-ranking">
+        <Link href={`${h.base}/chrono`} className="menu-card menu-ranking">
           <div className="menu-icon">⏳</div>
           <div className="menu-title">年代チャレンジ</div>
           <div className="menu-sub">
@@ -164,7 +166,7 @@ export default function JhistCorner() {
 
       {/* 9. 入試形式トレーニング */}
       <div className="menu">
-        <Link href="/jhist/exam" className="menu-card menu-review">
+        <Link href={`${h.base}/exam`} className="menu-card menu-review">
           <div className="menu-icon">🎯</div>
           <div className="menu-title">入試形式トレーニング</div>
           <div className="menu-sub">入力記述・3文正誤・複数選択・組合せを{EXAM_COUNT}問ずつ（ノルマ・ランキングには入りません）</div>

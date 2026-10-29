@@ -10,6 +10,7 @@ import { useSet } from "../../SetContext";
 import { Feedback } from "../parts";
 import { PairList } from "../PairList";
 import { pairTerms, useConfusions } from "../useConfusions";
+import { useHist } from "@/lib/jhist/context";
 
 const LABELS = ["ア", "イ", "ウ", "エ"];
 
@@ -38,6 +39,7 @@ function newId() {
 }
 
 function Confusions() {
+  const h = useHist();
   const params = useSearchParams();
   const { ready } = useSet();
   const { data, error } = useJhistData();
@@ -51,8 +53,8 @@ function Confusions() {
 
   return (
     <div className="card">
-      <Link href="/c/jhist" className="muted">
-        ← 日本史のページ
+      <Link href={h.corner} className="muted">
+        ← {h.label}のページ
       </Link>
       <h1 style={{ margin: "8px 0" }}>⚠️ 取り違えやすい語</h1>
       <p className="muted" style={{ marginTop: 0 }}>4択で選んだ誤答が、ほかの問題の正解だった組です。押すと、その2語の問題を続けて出します。</p>
@@ -63,6 +65,7 @@ function Confusions() {
 
 // 2語の特訓：4択で1問ずつ答え合わせ。最後にまとめて送る（正解しても段階は上げず、不正解なら下げる）
 function Drill({ data, a, b }: { data: JData; a: number; b: number }) {
+  const h = useHist();
   const [items] = useState(() => drillOf(data, a, b));
   const [idx, setIdx] = useState(0);
   const [picked, setPicked] = useState<string | null>(null);
@@ -73,7 +76,7 @@ function Drill({ data, a, b }: { data: JData; a: number; b: number }) {
   const send = useCallback(async (list: typeof answers) => {
     setSent("sending");
     try {
-      const r = await fetch("/api/jhist/answers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "confusion", attemptId: newId(), answers: list }) });
+      const r = await fetch(`${h.api}/answers`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "confusion", attemptId: newId(), answers: list }) });
       if (!r.ok) throw new Error();
       setSent("done");
       playSfx("finish");
@@ -99,11 +102,11 @@ function Drill({ data, a, b }: { data: JData; a: number; b: number }) {
         </div>
         {sent === "error" && <p className="error">記録できませんでした（答え合わせはできています）。</p>}
         <div className="btn-row" style={{ justifyContent: "center" }}>
-          <Link href="/jhist/confusions" className="btn btn-primary btn-large">
+          <Link href={`${h.base}/confusions`} className="btn btn-primary btn-large">
             ほかの組へ
           </Link>
-          <Link href="/c/jhist" className="btn btn-large">
-            日本史のページへ
+          <Link href={h.corner} className="btn btn-large">
+            {h.label}のページへ
           </Link>
         </div>
       </div>
@@ -143,7 +146,7 @@ function Drill({ data, a, b }: { data: JData; a: number; b: number }) {
       </div>
       {done && <Feedback data={data} q={q} chosen={picked} />}
       <div className="test-bottom">
-        <Link href="/jhist/confusions" className="link-btn">
+        <Link href={`${h.base}/confusions`} className="link-btn">
           やめる
         </Link>
         {done && (

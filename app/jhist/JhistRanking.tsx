@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { formatDate } from "@/lib/me";
+import { useHist } from "@/lib/jhist/context";
 
 type Row = { number: number; nickname: string; count: number; average: number | null; best: number | null; lastAt: string | null; fixed: number; targetFixed: number; target: number };
 
@@ -17,11 +18,12 @@ function ranks<T>(rows: T[], value: (r: T) => number) {
 
 // ランキングページの日本史タブ：実力テストの平均点（全範囲のテストだけ）と、定着語数
 export default function JhistRanking() {
+  const h = useHist();
   const [data, setData] = useState<{ players: Row[]; me: number } | null>(null);
   const [error, setError] = useState(false);
   const [tab, setTab] = useState<"test" | "fixed">("test");
   useEffect(() => {
-    fetch("/api/jhist/ranking", { cache: "no-store" })
+    fetch(`${h.api}/ranking`, { cache: "no-store" })
       .then(async (r) => {
         if (!r.ok) throw new Error();
         setData(await r.json());
@@ -46,7 +48,7 @@ export default function JhistRanking() {
         </button>
       </div>
       <div className="card hero">
-        <h1>📕 日本史 {tab === "test" ? "実力テストランキング" : "定着語数ランキング"}</h1>
+        <h1>{h.icon} {h.label} {tab === "test" ? "実力テストランキング" : "定着語数ランキング"}</h1>
         <p className="muted" style={{ margin: 0 }}>
           {tab === "test"
             ? "実力テスト（全範囲・ランダム50問）の平均点で競います。時代を選んだテストは入りません。"

@@ -6,6 +6,8 @@ import { CORNERS, SETS, type Corner } from "@/lib/sets";
 import { NICKNAME_MAX } from "@/lib/types";
 import { toMe, useMe } from "../MeContext";
 import { JhistSettingsCard } from "../jhist/SettingsForm";
+import { HistProvider } from "@/lib/jhist/context";
+import { HIST_KEYS } from "@/lib/jhist/subject";
 
 const CORNER_LABEL: Record<Corner, string> = {
   word: `${SETS.word.icon} ${SETS.word.label}`,
@@ -15,6 +17,7 @@ const CORNER_LABEL: Record<Corner, string> = {
   materials: "📒 学習教材",
   pastexams: "📝 過去問",
   jhist: "📕 日本史",
+  whist: "🌍 世界史",
 };
 
 type SaveState = { kind: "ok" | "error"; text: string } | null;
@@ -135,7 +138,11 @@ export default function MyPage() {
         {hiddenState && <p className={hiddenState.kind === "ok" ? "save-ok" : "error"}>{hiddenState.text}</p>}
       </div>
 
-      {me.corners.includes("jhist") && <JhistSettingsCard />}
+      {HIST_KEYS.filter((key) => me.corners.includes(key)).map((key) => (
+        <HistProvider key={key} subject={key}>
+          <JhistSettingsCard />
+        </HistProvider>
+      ))}
     </>
   );
 }

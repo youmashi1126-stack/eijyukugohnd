@@ -1,7 +1,8 @@
 "use client";
-// 日本史一問一答の画面用データ（public/jhist/data-*.json）。一度読んだら、ページを移っても使い回す
+// 日本史・世界史の一問一答の画面用データ（public/jhist/data-*.json・public/whist/data-*.json）。一度読んだら、ページを移っても使い回す
 import { useEffect, useState } from "react";
-import { JHIST_DATA_URL } from "@/data/jhist/meta";
+import { useHist } from "./context";
+import { HISTS, type HistKey } from "./subject";
 
 export const BLANK = "（　　）";
 
@@ -69,37 +70,41 @@ function build(raw: Raw): JData {
   };
 }
 
-let loaded: JData | null = null;
-let loading: Promise<JData> | null = null;
+const loaded: Partial<Record<HistKey, JData>> = {};
+const loading: Partial<Record<HistKey, Promise<JData>>> = {};
 
-export function loadJhistData(): Promise<JData> {
-  if (loaded) return Promise.resolve(loaded);
-  loading ??= fetch(JHIST_DATA_URL)
+export function loadJhistData(key: HistKey = "jhist"): Promise<JData> {
+  const hit = loaded[key];
+  if (hit) return Promise.resolve(hit);
+  loading[key] ??= fetch(HISTS[key].dataUrl)
     .then((r) => {
       if (!r.ok) throw new Error("load failed");
       return r.json();
     })
-    .then((raw: Raw) => (loaded = build(raw)))
+    .then((raw: Raw) => (loaded[key] = build(raw)))
     .catch((e) => {
-      loading = null;
+      delete loading[key];
       throw e;
     });
-  return loading;
+  return loading[key]!;
 }
 
+// 今開いている科目（useHist）のデータ
 export function useJhistData(): { data: JData | null; error: boolean } {
-  const [data, setData] = useState<JData | null>(loaded);
+  const { key } = useHist();
+  const [state, setState] = useState<{ key: HistKey; data: JData | null }>({ key, data: loaded[key] ?? null });
   const [error, setError] = useState(false);
+  const data = state.key === key ? state.data : (loaded[key] ?? null);
   useEffect(() => {
     if (data) return;
     let alive = true;
-    loadJhistData()
-      .then((d) => alive && setData(d))
+    loadJhistData(key)
+      .then((d) => alive && setState({ key, data: d }))
       .catch(() => alive && setError(true));
     return () => {
       alive = false;
     };
-  }, [data]);
+  }, [data, key]);
   return { data, error };
 }
 
