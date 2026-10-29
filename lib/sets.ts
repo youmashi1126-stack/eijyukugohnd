@@ -25,7 +25,7 @@ export type Corner = SetId | ExtraCorner;
 export const EXTRA_CORNERS: ExtraCorner[] = ["jhist", "study", "materials", "pastexams"];
 export const CORNERS: Corner[] = [...SET_IDS, ...EXTRA_CORNERS];
 export const EXTRA: Record<ExtraCorner, { icon: string; label: string; sub: string }> = {
-  jhist: { icon: "📕", label: "日本史", sub: "全3,051問" },
+  jhist: { icon: "📕", label: "日本史", sub: "全3,139問" },
   study: { icon: "⏱️", label: "学習時間", sub: "記録・目標" },
   materials: { icon: "📒", label: "教材", sub: "進み具合" },
   pastexams: { icon: "📝", label: "過去問", sub: "得点の記録" },
