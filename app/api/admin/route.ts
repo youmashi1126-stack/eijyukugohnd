@@ -5,7 +5,9 @@ import { buildSummary, loadHomeData } from "@/lib/homeSummary";
 import { getStore, renumberDump } from "@/lib/store";
 import { addDays, goalFor, weekStart, weekTotal } from "@/lib/study";
 import { jstDate } from "@/lib/types";
+import { histIndex } from "@/lib/jhist/data";
 import { eraStats } from "@/lib/jhist/plan";
+import { isHistKey, type HistKey } from "@/lib/jhist/subject";
 import { currentStreak, settingsOf, testAverage, toProfile } from "@/lib/jhist/profile";
 
 export const dynamic = "force-dynamic";
@@ -77,9 +79,11 @@ export async function POST(req: Request) {
     });
   }
 
-  // 日本史（教員向け）：時代 × 生徒の定着率とノルマの達成状況
+  // 日本史・世界史（教員向け。subject で科目を選ぶ。省略は日本史）：時代 × 生徒の定着率とノルマの達成状況
+  const subject: HistKey = isHistKey(body?.subject) ? body.subject : "jhist";
   if (action === "jhist") {
-    const [users, profiles] = await Promise.all([store.getUsers(), store.getJhistProfiles()]);
+    const ix = histIndex(subject);
+    const [users, profiles] = await Promise.all([store.getUsers(), store.getJhistProfiles(subject)]);
     const today = jstDate();
     return NextResponse.json({
       today,
@@ -87,7 +91,7 @@ export async function POST(req: Request) {
         .map((u) => {
           const p = toProfile(profiles[u.number]);
           const settings = settingsOf(p, today);
-          const eras = eraStats(p.summary, settings.goal);
+          const eras = eraStats(p.summary, settings.goal, ix.eras.length, ix.terms);
           const d = p.daily?.date === today ? p.daily : null;
           return {
             number: u.number,
@@ -109,12 +113,12 @@ export async function POST(req: Request) {
 
   // 日本史（教員向け）：問題ごとの回答数・正解数・選ばれた誤答の数
   if (action === "jhistQuestions") {
-    return NextResponse.json({ stats: await store.getJhistQuestionStats() });
+    return NextResponse.json({ stats: await store.getJhistQuestionStats(subject) });
   }
 
   // 日本史（教員向け）：「問題がおかしい」報告（新しい順）
   if (action === "jhistReports") {
-    const [reports, users] = await Promise.all([store.getJhistReports(), store.getUsers()]);
+    const [reports, users] = await Promise.all([store.getJhistReports(subject), store.getUsers()]);
     const names = new Map(users.map((u) => [u.number, u.nickname]));
     return NextResponse.json({ reports: reports.map((r) => ({ ...r, nickname: names.get(r.number) ?? "" })) });
   }

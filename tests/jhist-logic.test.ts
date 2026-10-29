@@ -48,13 +48,18 @@ describe("表示するコーナー", () => {
   it("設定を保存していない人は、すべて表示（null）", () => {
     expect(visibleCorners({})).toBeNull();
   });
-  it("日本史を追加する前に保存した人にも、日本史を表示する", () => {
-    expect(visibleCorners({ corners: ["word", "study"] })).toEqual(["word", "jhist", "study"]);
+  it("日本史・世界史を追加する前に保存した人にも、日本史・世界史を表示する", () => {
+    expect(visibleCorners({ corners: ["word", "study"] })).toEqual(["word", "jhist", "whist", "study"]);
   });
-  it("日本史を追加したあとに保存した人は、選んだとおり", () => {
-    const all = ["word", "idiom", "jhs", "jhist", "study", "materials", "pastexams"];
+  it("日本史を追加したあと・世界史を追加する前に保存した人には、世界史だけ新しく表示する", () => {
+    const before = ["word", "idiom", "jhs", "jhist", "study", "materials", "pastexams"];
+    expect(visibleCorners({ corners: ["word", "study"], cornersKnown: before })).toEqual(["word", "whist", "study"]);
+    expect(visibleCorners({ corners: ["jhist"], cornersKnown: before })).toEqual(["jhist", "whist"]);
+  });
+  it("世界史を追加したあとに保存した人は、選んだとおり", () => {
+    const all = ["word", "idiom", "jhs", "jhist", "whist", "study", "materials", "pastexams"];
     expect(visibleCorners({ corners: ["word", "study"], cornersKnown: all })).toEqual(["word", "study"]);
-    expect(visibleCorners({ corners: ["jhist"], cornersKnown: all })).toEqual(["jhist"]);
+    expect(visibleCorners({ corners: ["whist"], cornersKnown: all })).toEqual(["whist"]);
   });
 });
 

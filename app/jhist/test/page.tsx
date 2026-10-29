@@ -8,6 +8,7 @@ import { TEST_COUNT, TEST_SEC } from "@/lib/jhist/constants";
 import type { Goal } from "@/lib/jhist/profile";
 import { useSet } from "../../SetContext";
 import { Filled, ReportButton } from "../parts";
+import { useHist } from "@/lib/jhist/context";
 
 const LABELS = ["ア", "イ", "ウ", "エ"];
 const FLASH_MS = 150;
@@ -25,6 +26,7 @@ function newId() {
 
 // 日本史の実力テスト：ランダム50問・4択・制限時間12分30秒。選ぶとすぐ次へ、答え合わせは最後に
 export default function JhistTestPage() {
+  const h = useHist();
   const { ready } = useSet();
   const { data, error: dataError } = useJhistData();
   const [era, setEra] = useState<number | null>(null);
@@ -47,7 +49,7 @@ export default function JhistTestPage() {
     setError("");
     setResult(null);
     try {
-      const r = await fetch("/api/jhist/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ era, level }) });
+      const r = await fetch(`${h.api}/test`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ era, level }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
       const items = (d.qids as string[]).map((id) => {
@@ -75,7 +77,7 @@ export default function JhistTestPage() {
     const answers = test.items.map((it, i) => ({ qid: it.q.id, format: "choice", chosen: picksRef.current[i], sec: Math.round(secs.current[i] * 10) / 10 }));
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const r = await fetch("/api/jhist/answers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "test", testId: test.id, attemptId: newId(), answers }) });
+        const r = await fetch(`${h.api}/answers`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "test", testId: test.id, attemptId: newId(), answers }) });
         const d = await r.json();
         if (!r.ok) {
           setError(d.error ?? "結果を送信できませんでした");
@@ -129,10 +131,10 @@ export default function JhistTestPage() {
   if (!test) {
     return (
       <div className="card">
-        <Link href="/c/jhist" className="muted">
-          ← 日本史のページ
+        <Link href={h.corner} className="muted">
+          ← {h.label}のページ
         </Link>
-        <h1 style={{ margin: "8px 0" }}>🚀 日本史 実力テスト</h1>
+        <h1 style={{ margin: "8px 0" }}>🚀 {h.label} 実力テスト</h1>
         <p className="muted" style={{ marginTop: 0 }}>
           ランダム{TEST_COUNT}問・4択・制限時間{Math.floor(TEST_SEC / 60)}分{TEST_SEC % 60}秒。100点満点で採点します。ランキング（平均点）には全範囲のテストだけが入ります。
         </p>
@@ -153,7 +155,7 @@ export default function JhistTestPage() {
             <div className="corner-choices">
               {LEVELS.map((l) => (
                 <label key={l.id} className={`corner-choice ${level === l.id ? "on" : ""}`}>
-                  <input type="radio" name="jhist-level" checked={level === l.id} onChange={() => setLevel(l.id)} />
+                  <input type="radio" name={`${h.key}-level`} checked={level === l.id} onChange={() => setLevel(l.id)} />
                   {l.label}
                 </label>
               ))}
@@ -191,8 +193,8 @@ export default function JhistTestPage() {
             <button className="btn btn-primary btn-large" onClick={() => setTest(null)}>
               🔁 もう一度
             </button>
-            <Link href="/c/jhist" className="btn btn-large">
-              日本史のページへ
+            <Link href={h.corner} className="btn btn-large">
+              {h.label}のページへ
             </Link>
           </div>
         </div>

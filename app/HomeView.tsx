@@ -5,12 +5,14 @@ import type { HomeSummary, MaterialsSummary, PastSummary } from "@/lib/home";
 import { percent } from "@/lib/pastExams";
 import { EXTRA, SET_IDS, SETS, type Corner } from "@/lib/sets";
 import { dayLabel, formatMinutes, PLAN_KINDS } from "@/lib/study";
+import { HIST_KEYS } from "@/lib/jhist/subject";
 
 const LABEL: Record<Corner, string> = {
   word: `${SETS.word.icon} ${SETS.word.label}`,
   idiom: `${SETS.idiom.icon} ${SETS.idiom.label}`,
   jhs: `${SETS.jhs.icon} ${SETS.jhs.label}`,
   jhist: `${EXTRA.jhist.icon} ${EXTRA.jhist.label}`,
+  whist: `${EXTRA.whist.icon} ${EXTRA.whist.label}`,
   study: `${EXTRA.study.icon} 学習時間`,
   materials: `${EXTRA.materials.icon} 学習教材`,
   pastexams: `${EXTRA.pastexams.icon} 過去問`,
@@ -118,23 +120,27 @@ export default function HomeView({ s, corners, link, detail }: { s: HomeSummary;
         );
       })}
 
-      {corners.includes("jhist") && s.jhist && (
-        <Card corner="jhist" link={link}>
-          <div className="home-big">
-            定着 <b>{s.jhist.target ? Math.round((s.jhist.fixed / s.jhist.target) * 1000) / 10 : 0}%</b>
-            <small>
-              （{s.jhist.fixed.toLocaleString()}/{s.jhist.target.toLocaleString()}）
-            </small>
-          </div>
-          <Bar value={s.jhist.target ? s.jhist.fixed / s.jhist.target : null} />
-          <div className="home-sub">
-            今日のノルマ：{s.jhist.remaining === null ? "-" : s.jhist.remaining > 0 ? `残り${s.jhist.remaining}問` : "達成 🎉"}・連続{s.jhist.streak}日
-            <br />
-            テスト {s.jhist.count}回・平均 {s.jhist.average ?? "-"}点・最高 {s.jhist.best ?? "-"}点
-          </div>
-          {hiddenForOthers.includes("jhist") && <p className="home-private">🙈 ほかの人には見せていません</p>}
-        </Card>
-      )}
+      {HIST_KEYS.map((key) => {
+        const x = s[key];
+        if (!corners.includes(key) || !x) return null;
+        return (
+          <Card key={key} corner={key} link={link}>
+            <div className="home-big">
+              定着 <b>{x.target ? Math.round((x.fixed / x.target) * 1000) / 10 : 0}%</b>
+              <small>
+                （{x.fixed.toLocaleString()}/{x.target.toLocaleString()}）
+              </small>
+            </div>
+            <Bar value={x.target ? x.fixed / x.target : null} />
+            <div className="home-sub">
+              今日のノルマ：{x.remaining === null ? "-" : x.remaining > 0 ? `残り${x.remaining}問` : "達成 🎉"}・連続{x.streak}日
+              <br />
+              テスト {x.count}回・平均 {x.average ?? "-"}点・最高 {x.best ?? "-"}点
+            </div>
+            {hiddenForOthers.includes(key) && <p className="home-private">🙈 ほかの人には見せていません</p>}
+          </Card>
+        );
+      })}
 
       {corners.includes("study") && s.study && (
         <Card corner="study" link={link}>

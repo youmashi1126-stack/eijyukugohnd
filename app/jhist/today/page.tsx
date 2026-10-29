@@ -12,6 +12,7 @@ import { useSet } from "../../SetContext";
 import { InputAnswer } from "../InputAnswer";
 import { Feedback } from "../parts";
 import { JhistSettingsForm } from "../SettingsForm";
+import { useHist } from "@/lib/jhist/context";
 
 const LABELS = ["ア", "イ", "ウ", "エ"];
 // 何問ごとにまとめて送るか
@@ -48,6 +49,7 @@ function newAttemptId() {
 }
 
 export default function JhistTodayPage() {
+  const h = useHist();
   const { ready } = useSet();
   const { data, error: dataError } = useJhistData();
   const [status, setStatus] = useState<Status | null>(null);
@@ -66,7 +68,7 @@ export default function JhistTodayPage() {
   const load = useCallback(async () => {
     setError("");
     try {
-      const r = await fetch("/api/jhist/today", { cache: "no-store" });
+      const r = await fetch(`${h.api}/today`, { cache: "no-store" });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
       setStatus(d);
@@ -88,7 +90,7 @@ export default function JhistTodayPage() {
     pending.current = [];
     setSending(true);
     try {
-      const r = await fetch("/api/jhist/answers", {
+      const r = await fetch(`${h.api}/answers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source: "today", attemptId: newAttemptId(), answers: batch }),
@@ -111,8 +113,8 @@ export default function JhistTodayPage() {
     if (!pending.current.length) return;
     const body = JSON.stringify({ source: "today", attemptId: newAttemptId(), answers: pending.current });
     pending.current = [];
-    if (!navigator.sendBeacon?.("/api/jhist/answers", new Blob([body], { type: "application/json" }))) {
-      fetch("/api/jhist/answers", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => {});
+    if (!navigator.sendBeacon?.(`${h.api}/answers`, new Blob([body], { type: "application/json" }))) {
+      fetch(`${h.api}/answers`, { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => {});
     }
   }, []);
   useEffect(() => {
@@ -220,7 +222,7 @@ export default function JhistTodayPage() {
                   {finished ? "▶ 続ける" : "▶ 今日の学習をはじめる"}
                 </button>
                 {finished && (
-                  <Link href="/c/jhist" className="btn btn-large">
+                  <Link href={h.corner} className="btn btn-large">
                     今日は終わり
                   </Link>
                 )}
@@ -231,10 +233,10 @@ export default function JhistTodayPage() {
               <p style={{ fontSize: 18, fontWeight: 800 }}>🎉 今日の分はすべて終わりました！</p>
               <p className="muted">また明日。節別の練習で新しい範囲を先に学ぶこともできます。</p>
               <div className="btn-row" style={{ justifyContent: "center" }}>
-                <Link href="/c/jhist" className="btn btn-primary btn-large">
-                  日本史のページへ
+                <Link href={h.corner} className="btn btn-primary btn-large">
+                  {h.label}のページへ
                 </Link>
-                <Link href="/jhist/practice" className="btn btn-large">
+                <Link href={`${h.base}/practice`} className="btn btn-large">
                   📚 節別の練習
                 </Link>
               </div>
@@ -262,7 +264,7 @@ export default function JhistTodayPage() {
             {idx + 1} / {steps.length}
           </span>
           <span className="muted" style={{ fontSize: 12 }}>
-            {data.eras[q.era]}
+            {h.eraShort[q.era]}
           </span>
         </div>
         <div className="progress">
@@ -289,7 +291,7 @@ export default function JhistTodayPage() {
         )}
 
         <div className="test-bottom">
-          <Link href="/c/jhist" className="link-btn" onClick={sendNow}>
+          <Link href={h.corner} className="link-btn" onClick={sendNow}>
             今日は終わり
           </Link>
           {answered && (
@@ -428,6 +430,7 @@ function WriteStep({ q, phase, onReveal, onSelf }: { q: CQuestion; phase: string
 
 // 初回だけ：入試日と目標を選ぶ（マイページでいつでも変えられる）
 function Setup({ status, onSaved }: { status: Status; onSaved: () => void }) {
+  const h = useHist();
   const [examDate, setExamDate] = useState(status.settings.examDate);
   const [goal, setGoal] = useState<Goal>(status.settings.goal);
   const [error, setError] = useState("");
@@ -436,7 +439,7 @@ function Setup({ status, onSaved }: { status: Status; onSaved: () => void }) {
     setBusy(true);
     setError("");
     try {
-      const r = await fetch("/api/jhist/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ examDate, goal }) });
+      const r = await fetch(`${h.api}/settings`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ examDate, goal }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
       onSaved();

@@ -122,11 +122,11 @@ export function SiteNav() {
           <Link href="/test?mode=review">🔁 復習</Link>
         </>
       )}
-      {corner === "jhist" && (pathname.startsWith("/c/jhist") || pathname.startsWith("/jhist")) && (
+      {(corner === "jhist" || corner === "whist") && (pathname.startsWith(`/c/${corner}`) || pathname.startsWith(`/${corner}`)) && (
         <>
-          <Link href="/jhist/today">📅 今日の学習</Link>
-          <Link href="/jhist/practice">📚 節別の練習</Link>
-          <Link href="/jhist/chrono">⏳ 年代</Link>
+          <Link href={`/${corner}/today`}>📅 今日の学習</Link>
+          <Link href={`/${corner}/practice`}>📚 節別の練習</Link>
+          <Link href={`/${corner}/chrono`}>⏳ 年代</Link>
         </>
       )}
       <Link href="/ranking">🏆 ランキング</Link>

@@ -1,8 +1,9 @@
-// 日本史一問一答の Excel（日本史一問一答_アプリ用データ.xlsx）を、アプリで使う形に変換する
+// 日本史・世界史の一問一答の Excel（〜一問一答_アプリ用データ.xlsx）を、アプリで使う形に変換する
 //
-//   node scripts/jhist-convert.mjs <Excel のパス>
+//   node scripts/jhist-convert.mjs <Excel のパス>          … 日本史
+//   node scripts/jhist-convert.mjs <Excel のパス> whist    … 世界史
 //
-// 出力
+// 出力（世界史は jhist の所が whist になる）
 //   public/jhist/data-<ハッシュ>.json … 画面用（問題文・選択肢・セクション・年代整序）。静的ファイルとして配信する
 //   data/jhist/index.ts             … サーバー用の小さな索引（ID・用語・時代・重要度・正解・別解・セクション）
 //   data/jhist/sections.md          … セクション一覧（含む節・問題数）の報告
@@ -16,14 +17,13 @@ import JSZip from "jszip";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const BLANK = "（　　）";
-const ERAS = ["原始", "古墳", "飛鳥", "奈良", "平安", "鎌倉", "室町", "安土桃山", "江戸", "明治", "大正", "昭和・平成"];
 const IMPORTANCE = ["S", "A", "B"];
 // セクションの大きさ：10問未満の節は同じ章の隣の節とまとめ、30問を超える節は問題ID順に分ける
 const SECTION_MIN = 10;
 const SECTION_MAX = 30;
 const CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩";
-// 年代整序の西暦が、時代としてありえる範囲か（入力の読み違いを見つけるため。前後に余裕をもたせる）
-const ERA_YEARS = {
+// 科目ごとの決まり。eras：時代（章）の区分と順番、eraYears：年代整序の西暦が時代としてありえる範囲か（入力の読み違いを見つけるため。前後に余裕をもたせる）
+const JHIST_ERA_YEARS = {
   原始: [-40000, 300],
   古墳: [200, 650],
   飛鳥: [500, 720],
@@ -37,6 +37,33 @@ const ERA_YEARS = {
   大正: [1910, 1930],
   "昭和・平成": [1925, 2030],
 };
+const SUBJECTS = {
+  jhist: {
+    label: "日本史",
+    eras: ["原始", "古墳", "飛鳥", "奈良", "平安", "鎌倉", "室町", "安土桃山", "江戸", "明治", "大正", "昭和・平成"],
+    eraYears: JHIST_ERA_YEARS,
+  },
+  // 世界史の「時代」は地域・テーマごとの章なので、年代は重なる。西暦は紀元前（負の数）〜現代の範囲だけ確かめる
+  whist: {
+    label: "世界史",
+    eras: [
+      "古代オリエントとギリシア・ローマ",
+      "南アジア・東南アジアの前近代史",
+      "東アジア・内陸アジアの前近代史",
+      "イスラーム世界と中世ヨーロッパ",
+      "近世ヨーロッパの展開",
+      "欧米近代社会の確立と展開",
+      "帝国主義とアジアの民族運動",
+      "2つの世界大戦と戦間期の世界",
+      "冷戦と現代の世界",
+    ],
+    eraYears: null,
+  },
+};
+const SUBJECT = process.argv[3] ?? "jhist";
+if (!SUBJECTS[SUBJECT]) throw new Error(`科目は jhist（日本史）か whist（世界史）です：${SUBJECT}`);
+const { label: LABEL, eras: ERAS, eraYears: ERA_YEARS } = SUBJECTS[SUBJECT];
+const UP = SUBJECT.toUpperCase();
 
 // ---------- xlsx の読み込み（JSZip だけで読む） ----------
 
@@ -108,7 +135,7 @@ const str = (v) => (v === null || v === undefined ? "" : String(v).trim());
 
 async function main() {
   const file = process.argv[2];
-  if (!file) throw new Error("使い方：node scripts/jhist-convert.mjs <Excel のパス>");
+  if (!file) throw new Error("使い方：node scripts/jhist-convert.mjs <Excel のパス> [jhist|whist]");
   const sheets = await readWorkbook(file);
   const Q = table(sheets["問題データ"], "問題データ");
   const T = table(sheets["用語マスタ"], "用語マスタ");
@@ -129,7 +156,8 @@ async function main() {
     const choices = ["正解", "誤答1", "誤答2", "誤答3"].map((k) => str(q[k]));
     if (choices.some((c) => !c)) fail(`${id}: 正解・誤答1〜3に空欄があります`);
     if (new Set(choices).size !== 4) fail(`${id}: 選択肢（正解と誤答）が重複しています`);
-    if (!ERAS.includes(str(q["時代"]))) fail(`${id}: 時代「${str(q["時代"])}」が12区分にありません`);
+    if (!ERAS.includes(str(q["時代"]))) fail(`${id}: 時代「${str(q["時代"])}」が${ERAS.length}区分にありません`);
+    if (Number(q["章番号"]) !== ERAS.indexOf(str(q["時代"])) + 1) fail(`${id}: 章番号 ${q["章番号"]} と時代「${str(q["時代"])}」が合いません`);
     if (!IMPORTANCE.includes(str(q["重要度"]))) fail(`${id}: 重要度「${str(q["重要度"])}」が S／A／B ではありません`);
     const alts = str(q["別解"]).split("、").map((s) => s.trim()).filter(Boolean);
     if (alts.some((a) => choices.slice(1).includes(a))) fail(`${id}: 別解が誤答と同じです`);
@@ -156,7 +184,8 @@ async function main() {
 
   // 年代整序：出典の問題があり、西暦が時代の範囲に収まること
   for (const c of C) {
-    const [lo, hi] = ERA_YEARS[str(c["時代"])] ?? [NaN, NaN];
+    const [lo, hi] = ERA_YEARS ? (ERA_YEARS[str(c["時代"])] ?? [NaN, NaN]) : ERAS.includes(str(c["時代"])) ? [-5000, 2100] : [NaN, NaN];
+    if (!Number.isInteger(c["西暦"])) fail(`年代整序「${str(c["出来事・法令など"])}」: 西暦 ${c["西暦"]} が整数ではありません`);
     if (!qById.has(str(c["出典問題ID"]))) fail(`年代整序「${str(c["出来事・法令など"])}」: 出典問題 ${str(c["出典問題ID"])} がありません`);
     if (!(Number(c["西暦"]) >= lo && Number(c["西暦"]) <= hi)) {
       fail(`年代整序「${str(c["出来事・法令など"])}」: 西暦 ${c["西暦"]} が時代「${str(c["時代"])}」の範囲外です`);
@@ -249,7 +278,7 @@ async function main() {
   };
   const json = JSON.stringify(client);
   const hash = crypto.createHash("sha256").update(json).digest("hex").slice(0, 10);
-  const outDir = path.join(ROOT, "public", "jhist");
+  const outDir = path.join(ROOT, "public", SUBJECT);
   fs.mkdirSync(outDir, { recursive: true });
   for (const f of fs.readdirSync(outDir)) if (/^data-.*\.json$/.test(f)) fs.unlinkSync(path.join(outDir, f));
   const dataFile = `data-${hash}.json`;
@@ -263,12 +292,12 @@ async function main() {
     if (!firstEra.has(t)) firstEra.set(t, ERAS.indexOf(str(q["時代"])));
   }
   const server = `// このファイルは scripts/jhist-convert.mjs が Excel から作る。手で直さないこと
-// 日本史一問一答のサーバー用の索引（問題文・誤答は public/jhist/${dataFile} にある）
+// ${LABEL}一問一答のサーバー用の索引（問題文・誤答は public/${SUBJECT}/${dataFile} にある）
 
-export { JHIST_DATA_URL, JHIST_ERAS, JHIST_SECTION_COUNT, JHIST_QUESTION_COUNT, JHIST_TERM_COUNT } from "./meta";
+export { ${UP}_DATA_URL, ${UP}_ERAS, ${UP}_SECTION_COUNT, ${UP}_QUESTION_COUNT, ${UP}_TERM_COUNT } from "./meta";
 
 // 問題ID|用語の番号|時代|重要度|セクションの番号|正解|別解（「、」区切り）|読みを問う問題なら r
-export const JHIST_QUESTIONS = \`${questions
+export const ${UP}_QUESTIONS = \`${questions
     .map((q) =>
       [
         str(q["問題ID"]),
@@ -285,25 +314,26 @@ export const JHIST_QUESTIONS = \`${questions
     .join("\n")}\`;
 
 // 用語ID|重要度|最初に出てくる時代
-export const JHIST_TERMS = \`${T.map((t) => [str(t["用語ID"]), str(t["重要度"]), firstEra.get(str(t["用語ID"]))].join("|")).join("\n")}\`;
+export const ${UP}_TERMS = \`${T.map((t) => [str(t["用語ID"]), str(t["重要度"]), firstEra.get(str(t["用語ID"]))].join("|")).join("\n")}\`;
 
 // セクション（練習の単位）：key|名前|時代|問題ID（「,」区切り）
-export const JHIST_SECTIONS = \`${sections.map((s) => [s.key, esc(s.name), s.era, s.ids.join(",")].join("|")).join("\n")}\`;
+export const ${UP}_SECTIONS = \`${sections.map((s) => [s.key, esc(s.name), s.era, s.ids.join(",")].join("|")).join("\n")}\`;
 `;
-  fs.mkdirSync(path.join(ROOT, "data", "jhist"), { recursive: true });
-  fs.writeFileSync(path.join(ROOT, "data", "jhist", "index.ts"), server);
+  const dataDir = path.join(ROOT, "data", SUBJECT);
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(path.join(dataDir, "index.ts"), server);
   // 画面でも使う小さな定義（索引を画面側に読み込まないよう分けておく）
   const meta = `// このファイルは scripts/jhist-convert.mjs が Excel から作る。手で直さないこと
-export const JHIST_DATA_URL = "/jhist/${dataFile}";
-export const JHIST_ERAS = ${JSON.stringify(ERAS)};
-export const JHIST_QUESTION_COUNT = ${Q.length};
-export const JHIST_TERM_COUNT = ${T.length};
-export const JHIST_SECTION_COUNT = ${sections.length};
+export const ${UP}_DATA_URL = "/${SUBJECT}/${dataFile}";
+export const ${UP}_ERAS = ${JSON.stringify(ERAS)};
+export const ${UP}_QUESTION_COUNT = ${Q.length};
+export const ${UP}_TERM_COUNT = ${T.length};
+export const ${UP}_SECTION_COUNT = ${sections.length};
 `;
-  fs.writeFileSync(path.join(ROOT, "data", "jhist", "meta.ts"), meta);
+  fs.writeFileSync(path.join(dataDir, "meta.ts"), meta);
 
   const report = [
-    "# 日本史：節別の練習のセクション一覧",
+    `# ${LABEL}：節別の練習のセクション一覧`,
     "",
     `scripts/jhist-convert.mjs が作成。${sections.length}セクション（問題数 ${Math.min(...sections.map((s) => s.ids.length))}〜${Math.max(...sections.map((s) => s.ids.length))}問）。`,
     `10問未満の節は同じ章の隣の節とまとめ、30問を超える節は問題ID順に分けた（「①②…」）。`,
@@ -313,13 +343,13 @@ export const JHIST_SECTION_COUNT = ${sections.length};
     ...sections.map((s, i) => `| ${i + 1} | ${s.name} | ${ERAS[s.era]} | ${s.nodes.join("・")} | ${s.ids.length} |`),
     "",
   ].join("\n");
-  fs.writeFileSync(path.join(ROOT, "data", "jhist", "sections.md"), report);
+  fs.writeFileSync(path.join(dataDir, "sections.md"), report);
 
   console.log(`問題 ${Q.length}問・用語 ${T.length}語・年代整序 ${C.length}件・節 ${nodes.size}節 → セクション ${sections.length}`);
   console.log(`まとめた節：${groups.filter((g) => g.length > 1).map((g) => g.map((n) => n.no).join("+")).join("、")}`);
   console.log(`分けた節：${groups.filter((g) => size(g) > SECTION_MAX).length}（${sections.filter((s) => s.key.includes("-")).length}セクション）`);
   if (badSize.length) console.log(`⚠️ 10〜30問に収まらないセクション：${badSize.map((s) => `${s.name}(${s.ids.length})`).join("、")}`);
-  console.log(`書き出し：public/jhist/${dataFile}（${(Buffer.byteLength(json) / 1024).toFixed(0)}KB）、data/jhist/index.ts・meta.ts、data/jhist/sections.md`);
+  console.log(`書き出し：public/${SUBJECT}/${dataFile}（${(Buffer.byteLength(json) / 1024).toFixed(0)}KB）、data/${SUBJECT}/index.ts・meta.ts、data/${SUBJECT}/sections.md`);
 }
 
 main().catch((e) => {

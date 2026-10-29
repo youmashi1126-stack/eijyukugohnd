@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { GOALS, type ExamLevel, type Goal, type WriteMode } from "@/lib/jhist/profile";
+import { useHist } from "@/lib/jhist/context";
 
-// 日本史の設定：入試日と目標（今日の学習のはじめと、マイページで使う）
+// 日本史・世界史の設定：入試日と目標（今日の学習のはじめと、マイページで使う）
 export function JhistSettingsForm({
   examDate,
   goal,
@@ -15,6 +16,7 @@ export function JhistSettingsForm({
   onExamDate: (v: string) => void;
   onGoal: (g: Goal) => void;
 }) {
+  const h = useHist();
   return (
     <div className="jh-settings">
       <label className="jh-settings-row">
@@ -26,7 +28,7 @@ export function JhistSettingsForm({
         <div className="corner-choices">
           {GOALS.map((g) => (
             <label key={g.id} className={`corner-choice ${goal === g.id ? "on" : ""}`}>
-              <input type="radio" name="jhist-goal" checked={goal === g.id} onChange={() => onGoal(g.id)} />
+              <input type="radio" name={`${h.key}-goal`} checked={goal === g.id} onChange={() => onGoal(g.id)} />
               {g.label}
             </label>
           ))}
@@ -67,6 +69,7 @@ function Choices<T extends string>({ name, label, list, value, onChange }: { nam
 
 // マイページ：日本史の設定
 export function JhistSettingsCard() {
+  const h = useHist();
   const [examDate, setExamDate] = useState("");
   const [goal, setGoal] = useState<Goal>("std");
   const [writeMode, setWriteMode] = useState<WriteMode>("self");
@@ -75,7 +78,7 @@ export function JhistSettingsCard() {
   const [state, setState] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    fetch("/api/jhist", { cache: "no-store" })
+    fetch(h.api, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (!d?.settings) return;
@@ -96,11 +99,11 @@ export function JhistSettingsCard() {
     setBusy(true);
     setState(null);
     try {
-      const r = await fetch("/api/jhist/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.fromEntries(changed.map((k) => [k, now[k]]))) });
+      const r = await fetch(`${h.api}/settings`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.fromEntries(changed.map((k) => [k, now[k]]))) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
       setSaved(now);
-      setState({ kind: "ok", text: "✓ 日本史の設定を保存しました（今日の学習の新出の数は、明日から新しい設定で決まります）" });
+      setState({ kind: "ok", text: `✓ ${h.label}の設定を保存しました（今日の学習の新出の数は、明日から新しい設定で決まります）` });
     } catch (e) {
       setState({ kind: "error", text: e instanceof Error ? e.message : "保存できませんでした" });
     } finally {
@@ -109,11 +112,11 @@ export function JhistSettingsCard() {
   }
   return (
     <div className="card">
-      <h2>📕 日本史の設定</h2>
+      <h2>{h.icon} {h.label}の設定</h2>
       <JhistSettingsForm examDate={examDate} goal={goal} onExamDate={setExamDate} onGoal={setGoal} />
       <div className="jh-settings" style={{ marginTop: 10 }}>
-        <Choices name="jhist-write" label="✍️ 記述の答え方" list={WRITE_MODES} value={writeMode} onChange={setWriteMode} />
-        <Choices name="jhist-level" label="🎯 入試形式の難易度" list={LEVELS} value={examLevel} onChange={setExamLevel} />
+        <Choices name={`${h.key}-write`} label="✍️ 記述の答え方" list={WRITE_MODES} value={writeMode} onChange={setWriteMode} />
+        <Choices name={`${h.key}-level`} label="🎯 入試形式の難易度" list={LEVELS} value={examLevel} onChange={setExamLevel} />
         <p className="muted" style={{ fontSize: 12, margin: 0 }}>
           入力して採点：漢字を入力すると自動で採点します（基本は1文字違いを△「誤字の可能性」、発展は×）。難易度は入試形式トレーニングの最初の値です。
         </p>

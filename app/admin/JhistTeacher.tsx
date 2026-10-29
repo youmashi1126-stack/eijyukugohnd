@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { groupOf } from "@/lib/home";
 import { BLANK, useJhistData, type JData } from "@/lib/jhist/client";
+import { useHist } from "@/lib/jhist/context";
 
 type Student = {
   number: number;
@@ -25,8 +26,9 @@ const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
 // 正答率の一覧に入れる最低の回答数（少ないと率がぶれるので）
 const MIN_ANSWERS = 3;
 
-// 管理者ページ：日本史の教員向け（時代 × 生徒の定着率とノルマ、問題ごとの正答率、「問題がおかしい」報告）
+// 管理者ページ：日本史・世界史の教員向け（時代 × 生徒の定着率とノルマ、問題ごとの正答率、「問題がおかしい」報告）
 export default function JhistTeacher({ post }: { post: (body: object) => Promise<unknown> }) {
+  const h = useHist();
   const { data } = useJhistData();
   const [tab, setTab] = useState<Tab>("students");
   const [students, setStudents] = useState<{ today: string; students: Student[] } | null>(null);
@@ -52,7 +54,9 @@ export default function JhistTeacher({ post }: { post: (body: object) => Promise
 
   return (
     <div className="card">
-      <h2>📕 日本史（教員用）</h2>
+      <h2>
+        {h.icon} {h.label}（教員用）
+      </h2>
       <div className="sort-tabs">
         <button className={tab === "students" && students ? "active" : ""} onClick={() => load("students")} disabled={busy}>
           🕰️ 時代別の定着率・ノルマ
@@ -75,6 +79,7 @@ export default function JhistTeacher({ post }: { post: (body: object) => Promise
 }
 
 function Students({ data, list }: { data: JData; list: Student[] }) {
+  const h = useHist();
   const [group, setGroup] = useState<number | "all">("all");
   const groups = [...new Set(list.map((s) => groupOf(s.number)))];
   const rows = list.filter((s) => group === "all" || groupOf(s.number) === group);
@@ -101,9 +106,9 @@ function Students({ data, list }: { data: JData; list: Student[] }) {
                 <br />
                 <small>定着/対象</small>
               </th>
-              {data.eras.map((e) => (
-                <th key={e} className="jh-era-th">
-                  {e}
+              {data.eras.map((e, i) => (
+                <th key={e} className="jh-era-th" title={e}>
+                  {h.eraShort[i]}
                 </th>
               ))}
               <th>

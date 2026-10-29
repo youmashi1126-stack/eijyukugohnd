@@ -18,21 +18,22 @@ export function parseSet(v: unknown): SetId {
   return v === "word" || v === "jhs" ? v : "idiom";
 }
 
-// ホームで切り替えるコーナー：英単語・英熟語・中学英語と、日本史・学習時間・学習教材・過去問
-// 日本史は英単語などの仕組み（習熟ポイント・3択）を使わない独立したコーナー
-export type ExtraCorner = "jhist" | "study" | "materials" | "pastexams";
+// ホームで切り替えるコーナー：英単語・英熟語・中学英語と、日本史・世界史・学習時間・学習教材・過去問
+// 日本史・世界史は英単語などの仕組み（習熟ポイント・3択）を使わない独立したコーナー（2つは同じ仕組み。lib/jhist）
+export type ExtraCorner = "jhist" | "whist" | "study" | "materials" | "pastexams";
 export type Corner = SetId | ExtraCorner;
-export const EXTRA_CORNERS: ExtraCorner[] = ["jhist", "study", "materials", "pastexams"];
+export const EXTRA_CORNERS: ExtraCorner[] = ["jhist", "whist", "study", "materials", "pastexams"];
 export const CORNERS: Corner[] = [...SET_IDS, ...EXTRA_CORNERS];
 export const EXTRA: Record<ExtraCorner, { icon: string; label: string; sub: string }> = {
   jhist: { icon: "📕", label: "日本史", sub: "全3,139問" },
+  whist: { icon: "🌍", label: "世界史", sub: "全6,051問" },
   study: { icon: "⏱️", label: "学習時間", sub: "記録・目標" },
   materials: { icon: "📒", label: "教材", sub: "進み具合" },
   pastexams: { icon: "📝", label: "過去問", sub: "得点の記録" },
 };
 
 export function isExtraCorner(v: unknown): v is ExtraCorner {
-  return v === "jhist" || v === "study" || v === "materials" || v === "pastexams";
+  return v === "jhist" || v === "whist" || v === "study" || v === "materials" || v === "pastexams";
 }
 
 // 表示するコーナーを保存した時点でまだなかったコーナーは、表示する（新しく追加したコーナーを最初から出すため）

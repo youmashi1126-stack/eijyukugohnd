@@ -8,9 +8,11 @@ import { PRACTICE_COUNT, PRACTICE_PASS_RATE, PRACTICE_SEC } from "@/lib/jhist/co
 import { markOf } from "@/lib/jhist/profile";
 import { useSet } from "../../../SetContext";
 import { useJhistMe } from "../../useJhistMe";
+import { useHist } from "@/lib/jhist/context";
 
 // 日本史：1セクションの一覧（空欄に正解を入れた文）。「答えを隠す」で赤シートのように隠せる
 export default function JhistSectionPage() {
+  const h = useHist();
   const key = decodeURIComponent(useParams<{ key: string }>().key);
   const { ready } = useSet();
   const { data, error } = useJhistData();
@@ -24,7 +26,7 @@ export default function JhistSectionPage() {
   if (!section) {
     return (
       <p className="muted center">
-        セクションが見つかりません。<Link href="/jhist/practice">セクション一覧へ</Link>
+        セクションが見つかりません。<Link href={`${h.base}/practice`}>セクション一覧へ</Link>
       </p>
     );
   }
@@ -37,7 +39,7 @@ export default function JhistSectionPage() {
   return (
     <>
       <div className="card hero practice-hero">
-        <Link href="/jhist/practice" className="back-link">
+        <Link href={`${h.base}/practice`} className="back-link">
           ← セクション一覧
         </Link>
         <h1 style={{ marginTop: 6 }}>
@@ -48,7 +50,7 @@ export default function JhistSectionPage() {
           {best ? ` 自己ベスト ${best[0]}/${best[1]}` : " まだ挑戦していません"}
         </p>
         <div className="btn-row">
-          <Link href={`/jhist/quiz?section=${encodeURIComponent(key)}`} className="btn btn-large" style={{ color: "var(--primary)" }}>
+          <Link href={`${h.base}/quiz?section=${encodeURIComponent(key)}`} className="btn btn-large" style={{ color: "var(--primary)" }}>
             ⏱ 4択テストに挑戦（{count === section.ids.length ? "全" : "ランダム"}
             {count}問・1問{PRACTICE_SEC}秒）
           </Link>
@@ -95,14 +97,14 @@ export default function JhistSectionPage() {
 
       <div className="section-nav">
         {prev ? (
-          <Link href={`/jhist/practice/${encodeURIComponent(prev.key)}`} className="btn">
+          <Link href={`${h.base}/practice/${encodeURIComponent(prev.key)}`} className="btn">
             ← {prev.no}. {prev.name}
           </Link>
         ) : (
           <span />
         )}
         {next && (
-          <Link href={`/jhist/practice/${encodeURIComponent(next.key)}`} className="btn">
+          <Link href={`${h.base}/practice/${encodeURIComponent(next.key)}`} className="btn">
             {next.no}. {next.name} →
           </Link>
         )}

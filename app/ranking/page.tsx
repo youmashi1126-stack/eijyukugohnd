@@ -17,6 +17,8 @@ import {
 import { useSet } from "../SetContext";
 import StudyRanking from "../study/StudyRanking";
 import JhistRanking from "../jhist/JhistRanking";
+import { HistProvider } from "@/lib/jhist/context";
+import { HISTS, HIST_KEYS } from "@/lib/jhist/subject";
 
 type DayRow = { number: number; nickname: string; best: number; count: number };
 
@@ -299,11 +301,11 @@ export default function RankingPage() {
           {SETS[s].icon} {SETS[s].label}
         </button>
       ))}
-      {visible.includes("jhist") && (
-        <button className={corner === "jhist" ? "active" : ""} onClick={() => openCorner("jhist")}>
-          📕 日本史
+      {HIST_KEYS.filter((key) => visible.includes(key)).map((key) => (
+        <button key={key} className={corner === key ? "active" : ""} onClick={() => openCorner(key)}>
+          {HISTS[key].icon} {HISTS[key].label}
         </button>
-      )}
+      ))}
       {visible.includes("study") && (
         <button className={corner === "study" ? "active" : ""} onClick={openStudy}>
           ⏱️ 学習時間
@@ -321,11 +323,13 @@ export default function RankingPage() {
       </>
     );
   }
-  if (corner === "jhist") {
+  if (corner === "jhist" || corner === "whist") {
     return (
       <>
         {corners}
-        <JhistRanking />
+        <HistProvider subject={corner}>
+          <JhistRanking key={corner} />
+        </HistProvider>
       </>
     );
   }

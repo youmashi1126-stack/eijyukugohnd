@@ -1,14 +1,16 @@
 "use client";
 import { useEffect, useState } from "react";
 import type { JData } from "@/lib/jhist/client";
+import { useHist } from "@/lib/jhist/context";
 
 // 取り違えた組（上位10組）：正解の用語と、選んだ誤答（＝ほかの用語の正解）と回数
 export type Pair = { term: string; wrong: string; n: number };
 
 export function useConfusions() {
+  const h = useHist();
   const [pairs, setPairs] = useState<Pair[] | null>(null);
   useEffect(() => {
-    fetch("/api/jhist/confusions", { cache: "no-store" })
+    fetch(`${h.api}/confusions`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : { pairs: [] }))
       .then((d) => setPairs(d.pairs ?? []))
       .catch(() => setPairs([]));

@@ -8,6 +8,7 @@ import { BLANK, shuffle, useJhistData, type CQuestion } from "@/lib/jhist/client
 import { PRACTICE_COUNT, PRACTICE_SEC } from "@/lib/jhist/constants";
 import { useSet } from "../../SetContext";
 import { Feedback, Filled } from "../parts";
+import { useHist } from "@/lib/jhist/context";
 
 const LABELS = ["ア", "イ", "ウ", "エ"];
 const TIMED_OUT = -1;
@@ -31,6 +32,7 @@ function makeItem(q: CQuestion): Item {
 }
 
 function Runner() {
+  const h = useHist();
   const params = useSearchParams();
   const router = useRouter();
   const sectionKey = params.get("section") ?? "";
@@ -106,7 +108,7 @@ function Runner() {
     setError("");
     for (let i = 0; i < SUBMIT_RETRIES; i++) {
       try {
-        const res = await fetch("/api/jhist/answers", {
+        const res = await fetch(`${h.api}/answers`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ source: "practice", section: sectionKey, attemptId: attemptId.current, answers: answers.current }),
@@ -153,7 +155,7 @@ function Runner() {
   if (!section) {
     return (
       <p className="muted center">
-        セクションが見つかりません。<Link href="/jhist/practice">セクション一覧へ</Link>
+        セクションが見つかりません。<Link href={`${h.base}/practice`}>セクション一覧へ</Link>
       </p>
     );
   }
@@ -182,7 +184,7 @@ function Runner() {
             <button className="btn btn-primary btn-large" onClick={start}>
               🔁 もう一度
             </button>
-            <Link href={`/jhist/practice/${encodeURIComponent(section.key)}`} className="btn btn-large">
+            <Link href={`${h.base}/practice/${encodeURIComponent(section.key)}`} className="btn btn-large">
               📖 一覧を見る
             </Link>
           </div>
@@ -265,7 +267,7 @@ function Runner() {
           <button
             className="link-btn"
             onClick={() => {
-              if (confirm("途中でやめると結果は記録されません。やめますか？")) router.push(`/jhist/practice/${encodeURIComponent(section.key)}`);
+              if (confirm("途中でやめると結果は記録されません。やめますか？")) router.push(`${h.base}/practice/${encodeURIComponent(section.key)}`);
             }}
           >
             やめる

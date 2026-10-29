@@ -69,6 +69,7 @@ export type HomeSummary = {
   materials: MaterialsSummary | null;
   pastexams: PastSummary | null;
   jhist?: JhistSummary | null;
+  whist?: JhistSummary | null; // 世界史（日本史と同じ形）
   lastActive?: string | null; // 最後に記録した日（テスト・学習時間）
 };
 

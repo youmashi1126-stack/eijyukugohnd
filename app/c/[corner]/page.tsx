@@ -14,6 +14,7 @@ import Materials from "../../materials/Materials";
 import PastExams from "../../pastexams/PastExams";
 import StudyRecord from "../../study/StudyRecord";
 import JhistCorner from "../../jhist/JhistCorner";
+import { HistProvider } from "@/lib/jhist/context";
 
 function greeting() {
   const h = new Date().getHours();
@@ -77,8 +78,11 @@ function CornerContent() {
     <>
       <StorageWarning persistent={persistent} />
       <SetSwitch />
-      {corner === "jhist" ? (
-        <JhistCorner />
+      {corner === "jhist" || corner === "whist" ? (
+        // key：日本史と世界史を切り替えたら作り直す（前の科目の記録を残さない）
+        <HistProvider subject={corner}>
+          <JhistCorner key={corner} />
+        </HistProvider>
       ) : corner === "study" ? (
         <StudyRecord />
       ) : corner === "materials" ? (

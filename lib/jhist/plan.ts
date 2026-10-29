@@ -1,4 +1,4 @@
-// 日本史：今日の学習の組み立て（新出数・重要度の解放・ノルマ・出題順）。サーバーで使う
+// 日本史・世界史：今日の学習の組み立て（新出数・重要度の解放・ノルマ・出題順）。サーバーで使う
 import { FIXED_HISTORY_DAYS, FIXED_STAGE, NEW_PER_DAY_MAX, NEW_PER_DAY_MIN, PACE_DAYS, REVIEW_ONLY_DAYS, UNLOCK_RATE, UNLOCK_STAGE } from "./constants";
 import { jhistIndex, type JTerm } from "./data";
 import { GOALS, IMPS, type Daily, type Goal, type Imp, type JhistSettings, type JhistSummary } from "./profile";
@@ -39,10 +39,15 @@ export function newPerDay(unlearned: number, today: string, examDate: string) {
 
 // 新出に出す重要度：S から。S の段階2以上が80％を超えたら A、A も超えたら B（目標が早慶上智のとき）
 export function unlockedImps(goal: Goal, states: TermStates, terms: JTerm[] = jhistIndex().terms): Imp[] {
-  const rate = (imp: Imp) => {
-    const list = terms.map((t, i) => [t, i] as const).filter(([t]) => t.imp === imp);
-    return list.length ? list.filter(([, i]) => stageOf(states, i) >= UNLOCK_STAGE).length / list.length : 1;
-  };
+  // 重要度ごとの用語数と、段階2以上の数（1回だけ数える。用語が多い世界史でも軽く）
+  const all = { S: 0, A: 0, B: 0 };
+  const up = { S: 0, A: 0, B: 0 };
+  for (let i = 0; i < terms.length; i++) {
+    const imp = terms[i].imp;
+    all[imp]++;
+    if (stageOf(states, i) >= UNLOCK_STAGE) up[imp]++;
+  }
+  const rate = (imp: Imp) => (all[imp] ? up[imp] / all[imp] : 1);
   const out: Imp[] = ["S"];
   if (rate("S") > UNLOCK_RATE) {
     out.push("A");
@@ -63,11 +68,11 @@ export function dueTerms(states: TermStates, today: number) {
 }
 
 // その日のノルマ。日が変わったら作り直す（その日の最初に決めた数のまま、1日を通して使う）
-export function dailyFor(prev: Daily | null, settings: JhistSettings, states: TermStates, today: string): Daily {
+export function dailyFor(prev: Daily | null, settings: JhistSettings, states: TermStates, today: string, terms: JTerm[] = jhistIndex().terms): Daily {
   if (prev && prev.date === today) return prev;
   return {
     date: today,
-    newTarget: newPerDay(unlearnedCount(settings.goal, states), today, settings.examDate),
+    newTarget: newPerDay(unlearnedCount(settings.goal, states, terms), today, settings.examDate),
     reviewTarget: dueTerms(states, dayNumber(today)).length,
     newDone: 0,
     reviewDone: 0,
@@ -107,20 +112,22 @@ export function buildQueue(
   size: number,
   exclude: Set<number> = new Set(),
   rand = Math.random,
+  terms: JTerm[] = jhistIndex().terms,
 ): QueueItem[] {
-  const { terms } = jhistIndex();
   const day = dayNumber(today);
-  const reviews = dueTerms(states, day)
-    .filter((i) => !exclude.has(i))
-    .sort((a, b) => states.get(a)!.due - states.get(b)!.due || terms[a].order - terms[b].order)
-    .slice(0, size);
+  const due: [number, number, number][] = []; // [用語の番号, 次の出題日, 新出の順]
+  for (const [i, st] of states) if (st.due <= day && !exclude.has(i)) due.push([i, st.due, terms[i].order]);
+  const reviews = due
+    .sort((a, b) => a[1] - b[1] || a[2] - b[2])
+    .slice(0, size)
+    .map(([i]) => i);
   const items: QueueItem[] = shuffle(reviews, rand).map((i) => {
     const st = states.get(i)!;
     return { qid: nextQuestion(terms[i], st.q), term: i, stage: st.s, format: formatOf(st.s), isNew: false };
   });
   const room = Math.min(size - items.length, Math.max(0, daily.newTarget - daily.newDone));
   if (room > 0) {
-    const imps = unlockedImps(settings.goal, states).filter((imp) => targetImps(settings.goal).includes(imp));
+    const imps = unlockedImps(settings.goal, states, terms).filter((imp) => targetImps(settings.goal).includes(imp));
     const fresh = terms
       .map((t, i) => [t, i] as const)
       .filter(([t, i]) => !states.has(i) && !exclude.has(i) && imps.includes(t.imp))
@@ -129,6 +136,15 @@ export function buildQueue(
     for (const [t, i] of fresh) items.push({ qid: t.questions[0], term: i, stage: 0, format: "choice", isNew: true });
   }
   return items;
+}
+
+// 今日まだ出せる問題があるか（buildQueue(…, 1) と同じ答えを、並べ替えずに求める）
+export function hasMore(states: TermStates, daily: Daily, settings: JhistSettings, today: string, terms: JTerm[] = jhistIndex().terms) {
+  const day = dayNumber(today);
+  for (const st of states.values()) if (st.due <= day) return true;
+  if (daily.newTarget - daily.newDone <= 0) return false;
+  const imps = unlockedImps(settings.goal, states, terms).filter((imp) => targetImps(settings.goal).includes(imp));
+  return terms.some((t, i) => !states.has(i) && imps.includes(t.imp));
 }
 
 // 集計：時代 × 重要度（S・A・B）ごとの、定着（段階4以上）と学習中（段階1〜3）の用語数
